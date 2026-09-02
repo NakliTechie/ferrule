@@ -356,6 +356,31 @@ func (b *Bus) register() {
 			return map[string]any{"grant": g, "token": tok, "shown_once": true}, nil
 		}})
 
+	b.add(&Op{Name: "read_content", Desc: i18n.T("op.read_content"), PersonOnly: true,
+		Params: []Param{{Name: "limit", Type: "number", Desc: "how many pairs, newest first"}},
+		run: func(_ context.Context, a *app.App, args Args) (any, error) {
+			if !a.DB.ContentLoggingOn() {
+				return map[string]any{"on": false, "message": i18n.T("content.off"), "content": []any{}}, nil
+			}
+			rows, err := a.DB.Contents(args.Int("limit"))
+			if err != nil {
+				return nil, err
+			}
+			if len(rows) == 0 {
+				return map[string]any{"on": true, "message": i18n.T("content.empty"), "content": []any{}}, nil
+			}
+			return map[string]any{"on": true, "content": rows}, nil
+		}})
+
+	b.add(&Op{Name: "forget_content", Desc: i18n.T("op.forget_content"), Mutating: true, PersonOnly: true,
+		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
+			n, err := a.DB.ForgetContent()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"deleted": n, "message": i18n.T("content.forgot", n)}, nil
+		}})
+
 	b.add(&Op{Name: "export_config", Desc: i18n.T("op.export_config"), Mutating: true, PersonOnly: true,
 		Params: []Param{{Name: "path", Type: "string", Required: true, Desc: "where to write the portable file"}},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
@@ -409,15 +434,15 @@ func decorate(a *app.App, as []store.Alias) []map[string]any {
 // ---- portable configuration (§4.2 closure) ----
 
 type portable struct {
-	Format    string         `json:"format"`
-	Version   int            `json:"version"`
-	Written   string         `json:"written"`
-	Sources   []store.Source `json:"sources"`
-	Models    []store.Model  `json:"models"`
-	Aliases   []store.Alias  `json:"aliases"`
-	Remaps    []store.Remap  `json:"remaps"`
-	Grants    []store.Grant  `json:"grants"`
-	VaultBlob []byte         `json:"vault_blob"`
+	Format    string                `json:"format"`
+	Version   int                   `json:"version"`
+	Written   string                `json:"written"`
+	Sources   []store.Source        `json:"sources"`
+	Models    []store.Model         `json:"models"`
+	Aliases   []store.Alias         `json:"aliases"`
+	Remaps    []store.Remap         `json:"remaps"`
+	Grants    []store.PortableGrant `json:"grants"`
+	VaultBlob []byte                `json:"vault_blob"`
 }
 
 func exportConfig(a *app.App, path string) (any, error) {
@@ -440,7 +465,7 @@ func exportConfig(a *app.App, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	grants, err := a.DB.Grants()
+	grants, err := a.DB.ExportGrants()
 	if err != nil {
 		return nil, err
 	}
@@ -506,6 +531,11 @@ func importConfig(a *app.App, path string) (any, error) {
 		if err := a.DB.PutRemap(r); err != nil {
 			return nil, err
 		}
+	}
+	// Grants travel so the person's apps keep working after the move; what travels is
+	// the one-way hash that recognises a token, never a token.
+	if err := a.DB.ImportGrants(p.Grants); err != nil {
+		return nil, err
 	}
 	return map[string]any{"path": path, "sources": len(p.Sources),
 		"aliases": len(p.Aliases), "grants": len(p.Grants)}, nil

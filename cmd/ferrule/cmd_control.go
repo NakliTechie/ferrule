@@ -195,8 +195,22 @@ func cmdUsage(args []string) error {
 	by := fs.String("by", "app,model", "group by any of app, model, source, provider, egress")
 	hours := fs.Int("hours", 0, "window in hours; 0 for all time")
 	egress := fs.Bool("egress", false, "show what left the machine")
+	content := fs.Int("content", 0, "print the last N logged request/response pairs, if content logging is on")
+	forget := fs.Bool("forget-content", false, "delete everything the content log holds")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *forget {
+		res, err := dispatch("forget_content", api.Args{})
+		if err != nil {
+			return err
+		}
+		m, _ := res.(map[string]any)
+		fmt.Println(m["message"])
+		return nil
+	}
+	if *content > 0 {
+		return printContent(*content)
 	}
 	if *egress {
 		return printEgress(*hours)
@@ -243,6 +257,21 @@ func cmdUsage(args []string) error {
 	}
 	fmt.Fprintf(w, "%s\t%d\t\t\t\t$%.4f\n", i18n.T("ui.usage.total"), doc.Total.Requests, doc.Total.Cost)
 	return nil
+}
+
+func printContent(limit int) error {
+	res, err := dispatch("read_content", api.Args{"limit": float64(limit)})
+	if err != nil {
+		return err
+	}
+	m, _ := res.(map[string]any)
+	if msg, ok := m["message"].(string); ok {
+		fmt.Println(msg)
+		return nil
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(m["content"])
 }
 
 func printEgress(hours int) error {

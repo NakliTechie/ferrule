@@ -256,13 +256,18 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	w.WriteHeader(resp.StatusCode)
 	var usage usageCounts
 	var n int
+	var served []byte
+	logContent := r.db.ContentLoggingOn()
 	if stream {
-		n, usage = pipeStream(w, resp.Body)
+		n, usage, served = pipeStream(w, resp.Body, logContent)
 	} else {
 		raw, _ := io.ReadAll(resp.Body)
 		n = len(raw)
 		usage = parseUsage(raw)
 		_, _ = w.Write(raw)
+		if logContent {
+			served = raw
+		}
 	}
 
 	entry.LatencyMS = int(time.Since(start).Milliseconds())
@@ -270,6 +275,14 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	entry.PromptTokens, entry.CompletionTokens = usage.Prompt, usage.Completion
 	entry.Cost = Cost(t.Model, usage.Prompt, usage.Completion)
 	_ = r.db.Record(entry)
+	if logContent {
+		// Off by default, local only, and stored apart from the ledger (§4.5).
+		id, _ := r.db.LastLedgerID()
+		_ = r.db.RecordContent(store.Content{
+			LedgerID: id, App: g.App, Model: t.Model.ModelID,
+			Request: string(upstreamBody), Response: string(served),
+		})
+	}
 	return outcome{served: true}
 }
 
@@ -295,16 +308,21 @@ func parseUsage(raw []byte) usageCounts {
 
 // pipeStream relays SSE to the client as it arrives and picks the usage block out of the
 // stream on the way past. Relaying is never delayed to read the counts.
-func pipeStream(w http.ResponseWriter, body io.Reader) (int, usageCounts) {
+func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCounts, []byte) {
 	fl, _ := w.(http.Flusher)
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	total := 0
 	var usage usageCounts
+	var kept []byte
 	for sc.Scan() {
 		line := sc.Bytes()
-		n, _ := w.Write(append(append([]byte(nil), line...), '\n'))
+		out := append(append([]byte(nil), line...), '\n')
+		n, _ := w.Write(out)
 		total += n
+		if keep && len(kept) < 1<<20 {
+			kept = append(kept, out...)
+		}
 		if fl != nil {
 			fl.Flush()
 		}
@@ -316,7 +334,7 @@ func pipeStream(w http.ResponseWriter, body io.Reader) (int, usageCounts) {
 			}
 		}
 	}
-	return total, usage
+	return total, usage, kept
 }
 
 func copyHeaders(w http.ResponseWriter, resp *http.Response) {

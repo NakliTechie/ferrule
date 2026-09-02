@@ -21,13 +21,22 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", envPort(), "port to listen on")
 	host := fs.String("host", "127.0.0.1", "address to bind; localhost only by default")
-	passphrase := fs.String("passphrase", "", "unlock the vault with a passphrase instead of the on-disk identity")
+	passphrase := fs.Bool("passphrase", false, "prompt for a passphrase to unlock the vault, so nothing that can open it is written to disk")
 	noDetect := fs.Bool("no-detect", false, "skip the startup scan for local runtimes")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	a, err := app.Open(app.Options{Passphrase: *passphrase})
+	pass := ""
+	if *passphrase {
+		var err error
+		// Prompted, never a flag value: a passphrase on the command line is a passphrase
+		// in the process table.
+		if pass, err = promptSecret("Vault passphrase: "); err != nil {
+			return err
+		}
+	}
+	a, err := app.Open(app.Options{Passphrase: pass})
 	if err != nil {
 		return err
 	}

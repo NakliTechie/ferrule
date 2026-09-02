@@ -732,10 +732,32 @@ function render() {
   fn(pane, bar);
 }
 
-$("#foot-sov").addEventListener("click", () =>
+// The sovereignty statement and the one knob that can contradict it live together: a
+// person reading "nothing but metadata is recorded" should be able to see, in the same
+// breath, whether that is currently true on their machine — and change it there.
+function sovereigntyModal() {
+  const on = state.status && state.status.content_logging === "on";
   modal(T("ui.sovereignty.title"),
     el("p", { class: "note", text: T("app.sovereignty") }),
-    el("button", { class: "act", type: "button", text: T("ui.action.close"), onclick: closeModal })));
+    el("p", { class: on ? "why" : "note", text: on ? T("ui.sov.contentOn") : T("ui.sov.contentOff") }),
+    el("div", { class: "actions-lg" },
+      el("button", { class: "act", type: "button",
+        text: on ? T("ui.sov.turnOff") : T("ui.sov.turnOn"),
+        onclick: async () => {
+          closeModal();
+          await run(() => op("set_setting", { key: "content_logging", value: on ? "off" : "on" }),
+            on ? T("ui.sov.turnOff") : T("ui.sov.turnOn"));
+        } }),
+      on ? el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.sov.forget"),
+        onclick: async () => {
+          closeModal();
+          await run(() => op("forget_content"), T("ui.sov.forget"));
+        } }) : null,
+      el("button", { class: "act", type: "button", text: T("ui.action.close"), onclick: closeModal }),
+    ));
+}
+
+$("#foot-sov").addEventListener("click", sovereigntyModal);
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "?" && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) {

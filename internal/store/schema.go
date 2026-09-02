@@ -91,6 +91,19 @@ CREATE TABLE IF NOT EXISTS settings (
   v TEXT NOT NULL
 );
 
+-- Content lives apart from the metadata ledger on purpose: the ledger can then be
+-- described, honestly and without qualification, as holding no prompt or response text.
+CREATE TABLE IF NOT EXISTS content_log (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  ledger_id INTEGER NOT NULL,
+  ts        INTEGER NOT NULL,
+  app       TEXT NOT NULL DEFAULT '',
+  model     TEXT NOT NULL DEFAULT '',
+  request   TEXT NOT NULL DEFAULT '',
+  response  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS content_ledger ON content_log(ledger_id);
+
 CREATE TABLE IF NOT EXISTS staged_ops (
   id         TEXT PRIMARY KEY,
   op         TEXT NOT NULL,

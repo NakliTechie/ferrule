@@ -160,3 +160,73 @@ FROM ledger WHERE ts >= ? GROUP BY ` + sel + ` ORDER BY SUM(cost) DESC, COUNT(*)
 	}
 	return out, rows.Err()
 }
+
+// Content is the optional, off-by-default, local-only record of what a request and its
+// response actually said (§4.5). It lives in its own table so the metadata ledger stays
+// free of content by construction, and it is never included in a configuration export.
+type Content struct {
+	LedgerID int64  `json:"ledger_id"`
+	TS       int64  `json:"ts"`
+	App      string `json:"app"`
+	Model    string `json:"model"`
+	Request  string `json:"request"`
+	Response string `json:"response"`
+}
+
+// ContentLoggingOn reports whether the person has turned local content logging on.
+func (d *DB) ContentLoggingOn() bool {
+	return d.Setting(SetContentLogging, "off") == "on"
+}
+
+// RecordContent stores one request/response pair. Callers must check ContentLoggingOn
+// first; this method does not second-guess them, but it does refuse to run when the
+// setting is off, so a stray call cannot start recording content silently.
+func (d *DB) RecordContent(c Content) error {
+	if !d.ContentLoggingOn() {
+		return nil
+	}
+	_, err := d.sql.Exec(`
+INSERT INTO content_log (ledger_id, ts, app, model, request, response) VALUES (?,?,?,?,?,?)`,
+		c.LedgerID, now(), c.App, c.Model, c.Request, c.Response)
+	return err
+}
+
+// Contents returns the most recent logged pairs, newest first.
+func (d *DB) Contents(limit int) ([]Content, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := d.sql.Query(`
+SELECT ledger_id, ts, app, model, request, response
+FROM content_log ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Content
+	for rows.Next() {
+		var c Content
+		if err := rows.Scan(&c.LedgerID, &c.TS, &c.App, &c.Model, &c.Request, &c.Response); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ForgetContent deletes every logged pair. Turning the setting off does not delete what
+// was already recorded; this is how a person actually gets rid of it.
+func (d *DB) ForgetContent() (int64, error) {
+	res, err := d.sql.Exec(`DELETE FROM content_log`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// LastLedgerID returns the id of the most recently recorded ledger row.
+func (d *DB) LastLedgerID() (int64, error) {
+	var id int64
+	err := d.sql.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM ledger`).Scan(&id)
+	return id, err
+}

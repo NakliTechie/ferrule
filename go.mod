@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	filippo.io/age v1.3.2
+	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.58.0
 )
 

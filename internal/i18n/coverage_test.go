@@ -28,7 +28,8 @@ func TestEveryRequestedStringKeyExists(t *testing.T) {
 	goKey := regexp.MustCompile(`\b(?:i18n\.)?T\(\s*"([a-z][a-zA-Z0-9_]*(?:[.-][a-zA-Z0-9_]+)+)"`)
 	jsKey := regexp.MustCompile(`\bT\(\s*"([^"]+)"`)
 	jsPair := regexp.MustCompile(`\[\s*"[a-zA-Z]*",\s*"((?:ui|app|source|alias|usage)\.[^"]+)"`)
-	jsProp := regexp.MustCompile(`\bkey:\s*"([^"]+)"`)
+	// COLS entries name their heading by key; only dotted keys count.
+	jsProp := regexp.MustCompile(`\bkey:\s*"([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)"`)
 
 	used := map[string][]string{}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {

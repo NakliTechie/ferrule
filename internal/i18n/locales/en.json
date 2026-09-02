@@ -174,5 +174,15 @@
   "ui.usage.total": "Total",
   "ui.usage.loading": "Reading the ledger",
   "ui.usage.emptyHint": "Point an app at Ferrule with an app token and its calls show up here, per app and per model.",
-  "ui.source.modelCountOne": "1 model"
+  "ui.source.modelCountOne": "1 model",
+  "op.read_content": "Read the local content log, when content logging is on. Person-only: it returns prompt and response text.",
+  "op.forget_content": "Delete everything the content log holds.",
+  "content.off": "Content logging is off. Nothing was recorded.",
+  "content.forgot": "Deleted %s recorded request/response pair(s).",
+  "content.empty": "Content logging is on, but nothing has been recorded yet.",
+  "ui.sov.contentOn": "Local content logging is ON. Prompts and responses are being written to this machine's disk.",
+  "ui.sov.contentOff": "Local content logging is off. Only metadata is recorded — no prompt or response text.",
+  "ui.sov.turnOn": "Turn on local content logging",
+  "ui.sov.turnOff": "Turn off local content logging",
+  "ui.sov.forget": "Delete what was recorded"
 }

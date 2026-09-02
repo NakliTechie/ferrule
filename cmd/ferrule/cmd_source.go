@@ -10,6 +10,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"golang.org/x/term"
+
 	"ferrule/internal/discovery"
 	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
@@ -20,7 +22,7 @@ func cmdAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	name := fs.String("name", "", "name for this source (defaults to the provider id)")
 	base := fs.String("base-url", "", "base URL, for an unknown OpenAI-compatible endpoint")
-	key := fs.String("key", "", "API key; omit to be prompted so it stays out of your shell history")
+	key := fs.String("key", "", "API key; omit to be prompted, which keeps it out of your shell history and the process table")
 	detect := fs.Bool("detect", false, "scan localhost for running runtimes and adopt them")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -83,10 +85,22 @@ func printResult(r discovery.Result) {
 	fmt.Fprintln(os.Stderr, i18n.T("source.failed", r.Source.Name, r.Reason))
 }
 
-// promptSecret reads a secret from the terminal. It is read from stdin rather than taken
-// as a flag by default so the key never lands in shell history or the process table.
+// promptSecret reads a secret from the terminal without echoing it. Reading it here
+// rather than taking it as a flag keeps the key out of shell history and out of the
+// process table, where any other process on the machine could read it.
 func promptSecret(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		raw, err := term.ReadPassword(fd)
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(raw)), nil
+	}
+	// Not a terminal: accept a piped secret, which is how scripts and `pass`-style
+	// managers hand one over.
 	rd := bufio.NewReader(os.Stdin)
 	line, err := rd.ReadString('\n')
 	if err != nil && line == "" {

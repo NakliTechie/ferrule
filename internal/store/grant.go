@@ -123,3 +123,46 @@ func (d *DB) RevokeGrant(id string) error {
 	}
 	return nil
 }
+
+// PortableGrant is a grant plus the hash that recognises its token. It exists only for
+// the configuration export (§4.2 closure): a person who moves their configuration to
+// another machine expects their apps to keep working, and that needs the verifier to
+// travel. The hash is one-way — carrying it does not carry the token.
+type PortableGrant struct {
+	Grant
+	TokenHash string `json:"token_hash"`
+}
+
+// ExportGrants returns every grant with its token hash.
+func (d *DB) ExportGrants() ([]PortableGrant, error) {
+	rows, err := d.sql.Query(`SELECT id,app,token_hash,created_at,revoked_at FROM grants ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PortableGrant
+	for rows.Next() {
+		var g PortableGrant
+		if err := rows.Scan(&g.ID, &g.App, &g.TokenHash, &g.CreatedAt, &g.RevokedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// ImportGrants restores grants from an export, leaving any that already exist alone.
+func (d *DB) ImportGrants(gs []PortableGrant) error {
+	for _, g := range gs {
+		if g.ID == "" || g.TokenHash == "" {
+			continue
+		}
+		if _, err := d.sql.Exec(`
+INSERT INTO grants (id,app,token_hash,created_at,revoked_at) VALUES (?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET app=excluded.app, revoked_at=excluded.revoked_at`,
+			g.ID, g.App, g.TokenHash, g.CreatedAt, g.RevokedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
