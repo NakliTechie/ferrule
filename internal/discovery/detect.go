@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
 	"ferrule/internal/store"
 )
@@ -101,11 +100,11 @@ func (e *Engine) SetDetectURLs(providerID string, urls []string) {
 // plainly running but empty — a state the person fixes by pulling a model, not by
 // re-pasting a key, and one Ferrule must never fix by downloading gigabytes uninvited.
 func (e *Engine) softenEmpty(spec provider.Spec, r Result) Result {
-	if r.Source.Status != store.StatusFailed || r.Reason != i18n.T("probe.listEmpty") {
+	if r.Source.Status != store.StatusFailed || r.Reason.Code != CodeNoModels {
 		return r
 	}
-	reason := i18n.T("probe.localNoModels", spec.Label)
-	_ = e.db.SetSourceStatus(r.Source.ID, store.StatusFailed, reason)
-	r.Source.StatusReason, r.Reason = reason, reason
+	reason := newReason(CodeLocalNoModels, spec.Label)
+	r.Source = e.fail(r.Source, reason)
+	r.Reason = reason
 	return r
 }

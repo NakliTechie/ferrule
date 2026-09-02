@@ -46,6 +46,16 @@ func (b *Bus) register() {
 			}, nil
 		}})
 
+	b.add(&Op{Name: "brief", Desc: i18n.T("op.brief"),
+		Params: []Param{{Name: "endpoint", Type: "string", Desc: "the base URL to quote back in the suggested next moves"}},
+		run: func(ctx context.Context, a *app.App, args Args) (any, error) {
+			ep := args.Str("endpoint")
+			if ep == "" {
+				ep = "http://localhost:8899/v1"
+			}
+			return brief(ctx, a, ep)
+		}})
+
 	b.add(&Op{Name: "list_sources", Desc: i18n.T("op.list_sources"),
 		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
 			srcs, err := a.DB.Sources()
@@ -58,8 +68,8 @@ func (b *Bus) register() {
 				out = append(out, map[string]any{
 					"id": s.ID, "name": s.Name, "provider": s.Provider, "where": s.Kind,
 					"lane": s.Lane, "base_url": s.BaseURL, "status": s.Status,
-					"reason": s.StatusReason, "detected": s.Detected, "models": len(models),
-					"has_key": s.KeyRef != "",
+					"code": s.StatusCode, "reason": s.StatusReason, "remedy": s.StatusRemedy,
+					"detected": s.Detected, "models": len(models), "has_key": s.KeyRef != "",
 				})
 			}
 			return map[string]any{"sources": out}, nil

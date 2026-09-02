@@ -276,6 +276,8 @@ function sourceStrip() {
             : null,
         ),
         s.status === "failed" ? el("div", { class: "why", text: s.reason }) : null,
+        // What happened, then the exact next move — the second half is the useful half.
+        s.status === "failed" && s.remedy ? el("div", { class: "note", text: s.remedy }) : null,
         el("div", { class: "actions" },
           el("button", { class: "act", type: "button", text: T("ui.action.refresh"),
             onclick: () => run(() => op("refresh_source", { id: s.id }), T("ui.action.refresh")) }),

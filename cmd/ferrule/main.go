@@ -2,10 +2,14 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"ferrule/internal/app"
+	"ferrule/internal/discovery"
 	"ferrule/internal/i18n"
 )
 
@@ -26,6 +30,8 @@ func main() {
 
 	var err error
 	switch verb {
+	case "status":
+		err = cmdStatus(rest)
 	case "serve":
 		err = cmdServe(rest)
 	case "add":
@@ -53,8 +59,42 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ferrule:", err)
-		os.Exit(1)
+		os.Exit(exitFor(err))
 	}
+}
+
+// Exit codes map one-to-one to what the caller should do next, so nobody has to parse a
+// message to find out (DRIVER §3):
+//
+//	0  the thing worked
+//	1  it did not, and the reason says why — fix the cause and re-run
+//	2  the command itself was wrong — fix the invocation
+const (
+	exitOK      = 0
+	exitFailed  = 1
+	exitBadArgs = 2
+)
+
+func exitFor(err error) int {
+	var r discovery.Reason
+	if errors.As(err, &r) {
+		switch r.Code {
+		case discovery.CodeUnknownProvider, discovery.CodeNeedsKey, discovery.CodeNeedsBaseURL:
+			return exitBadArgs
+		}
+		return exitFailed
+	}
+	if errors.Is(err, flag.ErrHelp) || isUsage(err) {
+		return exitBadArgs
+	}
+	return exitFailed
+}
+
+func isUsage(err error) bool {
+	m := err.Error()
+	return strings.HasPrefix(m, "unknown verb") ||
+		strings.Contains(m, "flag provided but not defined") ||
+		strings.Contains(m, "needs an argument")
 }
 
 func usage() {

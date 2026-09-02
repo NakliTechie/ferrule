@@ -54,7 +54,7 @@ func (r *rig) addSource(t *testing.T, name, providerID, key string, up *mock.Pro
 		t.Fatalf("%s: add: %v", name, err)
 	}
 	if res.Source.Status != store.StatusLive {
-		t.Fatalf("%s: %s", name, res.Reason)
+		t.Fatalf("%s: %s", name, res.Reason.Message)
 	}
 	return res.Source
 }

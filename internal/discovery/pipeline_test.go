@@ -75,7 +75,7 @@ func TestCheckpointAddASourcePipeline(t *testing.T) {
 			t.Fatalf("%s: add: %v", c.provider, err)
 		}
 		if r.Source.Status != store.StatusLive {
-			t.Fatalf("%s: status %q (%s), want live", c.provider, r.Source.Status, r.Reason)
+			t.Fatalf("%s: status %q (%s)", c.provider, r.Source.Status, r.Reason.Message)
 		}
 		if c.provider == "replicate" {
 			// The passthrough lane is proven by an authenticated listing, and its models
@@ -103,11 +103,17 @@ func TestCheckpointAddASourcePipeline(t *testing.T) {
 	if r.Source.Status != store.StatusFailed {
 		t.Fatalf("bad key: status %q, want failed", r.Source.Status)
 	}
-	if strings.TrimSpace(r.Reason) == "" {
+	if strings.TrimSpace(r.Reason.Message) == "" {
 		t.Fatal("bad key: failed with no visible reason")
 	}
-	if !strings.Contains(r.Reason, "401") {
-		t.Errorf("bad key: reason %q does not name the upstream status", r.Reason)
+	if r.Reason.Code != discovery.CodeBadKey {
+		t.Errorf("bad key: code %q, want %q", r.Reason.Code, discovery.CodeBadKey)
+	}
+	if !strings.Contains(r.Reason.Message, "401") {
+		t.Errorf("bad key: message %q does not name the upstream status", r.Reason.Message)
+	}
+	if strings.TrimSpace(r.Reason.Remedy) == "" {
+		t.Error("bad key: the reason names no remedy")
 	}
 	persisted, err := a.DB.Source(r.Source.ID)
 	if err != nil {
@@ -121,7 +127,7 @@ func TestCheckpointAddASourcePipeline(t *testing.T) {
 func assertLive(t *testing.T, a *app.App, r discovery.Result) {
 	t.Helper()
 	if r.Source.Status != store.StatusLive {
-		t.Fatalf("%s: status %q (%s), want live", r.Source.Name, r.Source.Status, r.Reason)
+		t.Fatalf("%s: status %q (%s)", r.Source.Name, r.Source.Status, r.Reason.Message)
 	}
 	models, err := a.DB.Models(r.Source.ID)
 	if err != nil {
@@ -161,8 +167,11 @@ func TestDetectedRuntimeWithNoModelsSaysSo(t *testing.T) {
 	if res[0].Source.Status != store.StatusFailed {
 		t.Fatalf("status %q, want failed", res[0].Source.Status)
 	}
-	if !strings.Contains(res[0].Reason, "no models installed") {
-		t.Errorf("reason %q does not explain the empty runtime", res[0].Reason)
+	if res[0].Reason.Code != discovery.CodeLocalNoModels {
+		t.Errorf("code %q, want %q", res[0].Reason.Code, discovery.CodeLocalNoModels)
+	}
+	if !strings.Contains(res[0].Reason.Remedy, "Pull a model") {
+		t.Errorf("remedy %q does not tell the person what to do", res[0].Reason.Remedy)
 	}
 }
 
@@ -232,10 +241,15 @@ func TestUnknownProviderIsRefusedLoudly(t *testing.T) {
 	if err == nil {
 		t.Fatal("unknown provider was accepted")
 	}
-	for _, want := range []string{"anthropic", "deepseek", "groq", "replicate"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not name the seed provider %q", err, want)
-		}
+	r, ok := err.(discovery.Reason)
+	if !ok {
+		t.Fatalf("unknown provider returned %T, want a typed Reason", err)
+	}
+	if r.Code != discovery.CodeUnknownProvider {
+		t.Errorf("code %q, want %q", r.Code, discovery.CodeUnknownProvider)
+	}
+	if r.Remedy == "" {
+		t.Error("the refusal names no remedy")
 	}
 	if _, ok := provider.Get("openai-compatible"); !ok {
 		t.Error("the generic OpenAI-compatible provider is missing from the seed set")

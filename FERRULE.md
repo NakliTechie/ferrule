@@ -437,3 +437,60 @@ before infrastructure is built on it. Each checkpoint is a deterministic gate.
 **Ship the fully-working simple version: the vault, discovery, the raw-tokens endpoint,
 the control surface, and the egress view — dead simple, on one machine, nothing of
 ours in the loop. The keys live once; everything else falls out of that.**
+
+---
+
+## 5 · Resolutions (2026-09-03 — recorded from the build, per §4.11)
+
+The open decisions of §4.11, closed. Each is recorded here because §4.11 asked for it;
+each is reversible, and the reason is stated so reversing it is a decision and not a
+drift.
+
+- **Canvas — dark, confirmed.** The starting assumption held. Verified at the floor
+  viewport with the timeline capture and the four checks; see `design/VERIFICATION.md`.
+- **Type families — JetBrains Mono (datum) + IBM Plex Sans (chrome).** Both OFL 1.1, both
+  **embedded in the binary** as woff2 (~229 KB), licences shipped alongside. Embedded
+  rather than linked: a panel that fetched a webfont from a CDN on every load would put a
+  request on the network on behalf of a tool whose whole claim is that nothing leaves the
+  machine uninvited. The page's own CSP (`font-src 'self'`) makes that structural.
+  A six-style scale is fixed and machine-checked; see `design/VERIFICATION.md`.
+- **Default port — `:8899`, confirmed.** No clash observed; overridable by `--port` and
+  `FERRULE_PORT`.
+- **Encrypted-store library — `filippo.io/age`.** Pure Go, no cgo, which is what keeps
+  the five cross-compile targets of §4.1 buildable as single static binaries. A libsodium
+  binding needs cgo and would have cost that.
+
+### One token changed from §4.6, deliberately
+
+§4.6 proposes `rgba(233,238,242, …)` for the ink ladder and, in the same paragraph,
+requires neutrals with a channel spread under 5. Those are not compatible: 242 − 233 = 9.
+The shipped ladder is **`rgba(236,238,240, …)`** — spread 4, visually the same cool
+near-white, and a ladder that satisfies the rule it was given. Every other token is as
+specified.
+
+### Two things §4.2 specified that the build resolved differently
+
+- **Key custody is the age-encrypted store on every platform; the OS keychain backend is
+  not built.** §2.2 and §4.2 say "OS keychain where available, an encrypted file store
+  otherwise". Both routes to the macOS keychain are worse than the fallback: the
+  `security(1)` CLI takes the secret in `argv`, where any process on the machine can read
+  it, and the Security.framework route needs cgo, which breaks the single-static-binary
+  promise of §4.1 for all five targets. The `vault.Vault` interface is the seam a keychain
+  backend slots into unchanged if either constraint lifts. The threat model that is
+  actually delivered is written out at the top of `internal/vault/vault.go`, and
+  passphrase mode (`serve --passphrase`) narrows it further by writing nothing to disk
+  that can open the store.
+- **A configuration export carries grant token hashes.** §4.2 asks for closure — export
+  everything, re-import on another machine. Closure that silently invalidated every app's
+  token would not be closure, so the export carries the one-way hash that recognises a
+  token. No token travels; a hash cannot be reversed into one.
+
+### The agent contract (§4.7's pass, run)
+
+The DRIVER pass has been run and its output is **`SPEC.md` §0**. It added five things the
+handoff did not specify and the product needed: a single bounded perception act
+(`ferrule status --json` / the `brief` op), a closed reason vocabulary where every code
+carries a remedy, exit codes that map one-to-one to next actions, a rendered trajectory
+(ledger + control log + staged ops, all in the brief), and one real accretion mechanism —
+a live probe's classification is kept, so the request it cost is never spent twice. Each
+clause of §0 names the test that fails if it stops being true.

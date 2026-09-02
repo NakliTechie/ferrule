@@ -29,7 +29,7 @@ func TestCheckpointMediaPassthroughLane(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Source.Status != store.StatusLive {
-		t.Fatalf("replicate: %s", res.Reason)
+		t.Fatalf("replicate: %s", res.Reason.Message)
 	}
 	if res.Source.Lane != store.LanePassthrough {
 		t.Fatalf("lane %q, want passthrough", res.Source.Lane)

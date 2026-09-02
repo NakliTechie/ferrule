@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS sources (
   base_url       TEXT NOT NULL,
   key_ref        TEXT NOT NULL DEFAULT '',
   status         TEXT NOT NULL,          -- probing | live | failed
-  status_reason  TEXT NOT NULL DEFAULT '',
+  status_code    TEXT NOT NULL DEFAULT '',   -- closed vocabulary; agents branch on this
+  status_reason  TEXT NOT NULL DEFAULT '',   -- the message, for a person
+  status_remedy  TEXT NOT NULL DEFAULT '',   -- the exact next move
   detected       INTEGER NOT NULL DEFAULT 0,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
@@ -85,6 +87,14 @@ CREATE TABLE IF NOT EXISTS ledger (
 CREATE INDEX IF NOT EXISTS ledger_ts   ON ledger(ts);
 CREATE INDEX IF NOT EXISTS ledger_app  ON ledger(app);
 CREATE INDEX IF NOT EXISTS ledger_mdl  ON ledger(source_id, model_id);
+
+-- What a live probe cost money to learn is kept, so it is never learned twice. The
+-- catalog is the authority; this is only for ids the catalog is silent on.
+CREATE TABLE IF NOT EXISTS learned (
+  model_id     TEXT PRIMARY KEY,
+  capabilities TEXT NOT NULL DEFAULT '[]',
+  learned_at   INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,

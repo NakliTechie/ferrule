@@ -11,8 +11,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -62,8 +60,9 @@ type AddRequest struct {
 type Result struct {
 	Source store.Source  `json:"source"`
 	Models []store.Model `json:"models"`
-	// Reason is the visible failure reason when Source.Status is failed.
-	Reason string `json:"reason,omitempty"`
+	// Reason is the typed failure when Source.Status is failed: a code to branch on, a
+	// message for a person, and the exact next move.
+	Reason Reason `json:"reason,omitzero"`
 }
 
 // Add runs the whole pipeline for one source. A failure is persisted as a `failed`
@@ -71,18 +70,18 @@ type Result struct {
 func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	spec, ok := provider.Get(req.Provider)
 	if !ok {
-		return Result{}, fmt.Errorf("%s", i18n.T("source.unknownProvider", req.Provider, provider.Names()))
+		return Result{}, newReason(CodeUnknownProvider, req.Provider)
 	}
 	baseURL := strings.TrimSpace(req.BaseURL)
 	if baseURL == "" {
 		baseURL = spec.DefaultBaseURL
 	}
 	if baseURL == "" {
-		return Result{}, errors.New(i18n.T("source.needBaseURL"))
+		return Result{}, newReason(CodeNeedsBaseURL)
 	}
 	key := strings.TrimSpace(req.Key)
 	if spec.NeedsKey && key == "" {
-		return Result{}, fmt.Errorf("%s", i18n.T("source.needKey", spec.Label))
+		return Result{}, newReason(CodeNeedsKey, spec.Label)
 	}
 
 	name := strings.TrimSpace(req.Name)
@@ -120,36 +119,53 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	}
 
 	res, reason := e.run(ctx, spec, src, key)
-	if reason != "" {
-		_ = e.db.SetSourceStatus(src.ID, store.StatusFailed, reason)
-		src.Status, src.StatusReason = store.StatusFailed, reason
+	if !reason.OK() {
+		src = e.fail(src, reason)
 		return Result{Source: src, Reason: reason}, nil
 	}
 	if err := e.db.ReplaceModels(src.ID, res); err != nil {
 		return Result{}, err
 	}
-	ok2 := i18n.T("probe.ok", len(res))
-	_ = e.db.SetSourceStatus(src.ID, store.StatusLive, ok2)
-	src.Status, src.StatusReason = store.StatusLive, ok2
+	src = e.live(src, len(res))
 	return Result{Source: src, Models: res}, nil
 }
 
-// run is probe → classify → test. A non-empty reason means the source does not go live.
-func (e *Engine) run(ctx context.Context, spec provider.Spec, src store.Source, key string) ([]store.Model, string) {
+// fail persists a typed failure. A dead source is kept, visibly dead, with the reason
+// and the remedy that go with it — never dropped, never stored as working.
+func (e *Engine) fail(src store.Source, r Reason) store.Source {
+	_ = e.db.SetSourceStatus(src.ID, store.StatusFailed, r.Code_(), r.Message, r.Remedy)
+	src.Status, src.StatusCode, src.StatusReason, src.StatusRemedy =
+		store.StatusFailed, r.Code_(), r.Message, r.Remedy
+	return src
+}
+
+func (e *Engine) live(src store.Source, n int) store.Source {
+	msg := CodeOK.message(n)
+	_ = e.db.SetSourceStatus(src.ID, store.StatusLive, string(CodeOK), msg, "")
+	src.Status, src.StatusCode, src.StatusReason, src.StatusRemedy =
+		store.StatusLive, string(CodeOK), msg, ""
+	return src
+}
+
+// run is probe → classify → test. A reason that is not OK means the source stays dark.
+func (e *Engine) run(ctx context.Context, spec provider.Spec, src store.Source, key string) ([]store.Model, Reason) {
 	listed, err := e.list(ctx, spec, src.BaseURL, key)
 	if err != nil {
-		return nil, err.Error()
+		if r, ok := err.(Reason); ok {
+			return nil, r
+		}
+		return nil, reasonf(CodeUnreachable, err.Error())
 	}
 	models := e.classify(ctx, spec, src, key, listed)
 
 	// test — one minimal real request. Passthrough sources were tested by their
 	// authenticated listing call, which is the honest equivalent for that lane.
 	if spec.Lane == store.LaneTokens {
-		if reason := e.test(ctx, spec, src, key, models); reason != "" {
+		if reason := e.test(ctx, spec, src, key, models); !reason.OK() {
 			return nil, reason
 		}
 	}
-	return models, ""
+	return models, Reason{Code: CodeOK}
 }
 
 // classify tags each listed model, catalog first, cheap live probe where it is silent.
@@ -170,6 +186,10 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 				m.ContextLength = ent.Context
 			}
 			m.ClassifiedBy = i18n.T("classify.catalogHit")
+		} else if caps, ok := e.db.Learned(lm.ID); ok {
+			// A probe already paid for this answer once (DRIVER §8).
+			m.Capabilities = caps
+			m.ClassifiedBy = i18n.T("classify.learned")
 		} else {
 			m.ClassifiedBy = i18n.T("classify.unknown")
 			unknown = append(unknown, i)
@@ -207,6 +227,8 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 			out[idx].Capabilities = caps
 			out[idx].ClassifiedBy = i18n.T("classify.liveProbe")
 			mu.Unlock()
+			// The ratchet: what this request cost is not spent again.
+			_ = e.db.Learn(id, caps)
 		}(idx)
 	}
 	wg.Wait()
@@ -214,26 +236,23 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 }
 
 // test fires one minimal real request against the source's most representative model.
-func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source, key string, models []store.Model) string {
+func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source, key string, models []store.Model) Reason {
 	chat, embed := pickTestModels(models)
 	if chat != "" {
 		if ok, why := e.probeChat(ctx, spec, src.BaseURL, key, chat); ok {
-			return ""
+			return Reason{Code: CodeOK}
 		} else if embed == "" {
-			return i18n.T("probe.testFailed", why)
+			return newReason(CodeTestFailed, why)
 		}
 	}
 	if embed != "" {
 		if ok, why := e.probeEmbeddings(ctx, spec, src.BaseURL, key, embed); ok {
-			return ""
+			return Reason{Code: CodeOK}
 		} else {
-			return i18n.T("probe.testFailed", why)
+			return newReason(CodeTestFailed, why)
 		}
 	}
-	if chat == "" && embed == "" {
-		return i18n.T("probe.testNoModel")
-	}
-	return i18n.T("probe.testFailed", "")
+	return newReason(CodeNoModels)
 }
 
 func pickTestModels(models []store.Model) (chat, embed string) {
@@ -274,7 +293,7 @@ func (e *Engine) Refresh(ctx context.Context, sourceID string) (Result, error) {
 	}
 	spec, ok := provider.Get(src.Provider)
 	if !ok {
-		return Result{}, fmt.Errorf("%s", i18n.T("source.unknownProvider", src.Provider, provider.Names()))
+		return Result{}, newReason(CodeUnknownProvider, src.Provider)
 	}
 	key := ""
 	if src.KeyRef != "" {
@@ -283,17 +302,14 @@ func (e *Engine) Refresh(ctx context.Context, sourceID string) (Result, error) {
 		}
 	}
 	models, reason := e.run(ctx, spec, src, key)
-	if reason != "" {
-		_ = e.db.SetSourceStatus(src.ID, store.StatusFailed, reason)
-		src.Status, src.StatusReason = store.StatusFailed, reason
+	if !reason.OK() {
+		src = e.fail(src, reason)
 		return Result{Source: src, Reason: reason}, nil
 	}
 	if err := e.db.ReplaceModels(src.ID, models); err != nil {
 		return Result{}, err
 	}
-	ok2 := i18n.T("probe.ok", len(models))
-	_ = e.db.SetSourceStatus(src.ID, store.StatusLive, ok2)
-	src.Status, src.StatusReason = store.StatusLive, ok2
+	src = e.live(src, len(models))
 	return Result{Source: src, Models: models}, nil
 }
 

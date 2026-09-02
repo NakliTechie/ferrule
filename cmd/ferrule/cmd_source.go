@@ -45,8 +45,15 @@ func cmdAdd(args []string) error {
 			fmt.Println(i18n.T("serve.detectedNone"))
 			return nil
 		}
+		failed := 0
 		for _, r := range results {
 			printResult(r)
+			if r.Source.Status != store.StatusLive {
+				failed++
+			}
+		}
+		if failed == len(results) {
+			os.Exit(exitFailed)
 		}
 		return nil
 	}
@@ -71,18 +78,24 @@ func cmdAdd(args []string) error {
 	}
 	printResult(r)
 	if r.Source.Status == store.StatusFailed {
-		os.Exit(1)
+		os.Exit(exitFailed)
 	}
 	return nil
 }
 
+// printResult prints one pipeline outcome. A failure prints its code, its message, and
+// its remedy — what happened, what it means, and the exact next move.
 func printResult(r discovery.Result) {
 	if r.Source.Status == store.StatusLive {
 		fmt.Println(i18n.T("source.added", r.Source.Name, r.Source.Provider,
 			i18n.T("source.status.live"), len(r.Models)))
 		return
 	}
-	fmt.Fprintln(os.Stderr, i18n.T("source.failed", r.Source.Name, r.Reason))
+	fmt.Fprintln(os.Stderr, i18n.T("source.failed", r.Source.Name, r.Reason.Message))
+	fmt.Fprintln(os.Stderr, "  code:  ", r.Reason.Code)
+	if r.Reason.Remedy != "" {
+		fmt.Fprintln(os.Stderr, "  remedy:", r.Reason.Remedy)
+	}
 }
 
 // promptSecret reads a secret from the terminal without echoing it. Reading it here

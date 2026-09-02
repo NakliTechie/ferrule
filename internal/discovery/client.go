@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
 )
 
@@ -45,6 +43,7 @@ type listedModel struct {
 }
 
 // list runs the provider's model-listing dialect. This is the probe step (§2.3).
+// A failure comes back as a typed Reason, never as prose.
 func (e *Engine) list(ctx context.Context, spec provider.Spec, baseURL, key string) ([]listedModel, error) {
 	switch spec.Listing {
 	case provider.ListReplicate:
@@ -58,13 +57,13 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 	url := provider.URL(baseURL, "models")
 	code, raw, err := e.httpDo(ctx, spec, http.MethodGet, url, key, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s", i18n.T("probe.unreachable", url, trim(err.Error())))
+		return nil, newReason(CodeUnreachable, url, trim(err.Error()))
 	}
 	if code == http.StatusUnauthorized || code == http.StatusForbidden {
-		return nil, fmt.Errorf("%s", i18n.T("probe.badKey", code))
+		return nil, newReason(CodeBadKey, code)
 	}
 	if code != http.StatusOK {
-		return nil, fmt.Errorf("%s", i18n.T("probe.badStatus", code, trim(string(raw))))
+		return nil, newReason(CodeBadStatus, code, trim(string(raw)))
 	}
 	var doc struct {
 		Data []struct {
@@ -77,7 +76,7 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("%s", i18n.T("probe.listFailed", trim(err.Error())))
+		return nil, newReason(CodeNoModels)
 	}
 	out := make([]listedModel, 0, len(doc.Data))
 	for _, m := range doc.Data {
@@ -95,7 +94,7 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 		out = append(out, listedModel{ID: m.ID, Display: disp, Context: ctxLen})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s", i18n.T("probe.listEmpty"))
+		return nil, newReason(CodeNoModels)
 	}
 	return out, nil
 }
@@ -104,13 +103,13 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 	// The account endpoint is the honest key test: it 401s on a bad token and costs nothing.
 	code, raw, err := e.httpDo(ctx, spec, http.MethodGet, provider.URL(baseURL, "account"), key, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s", i18n.T("probe.unreachable", baseURL, trim(err.Error())))
+		return nil, newReason(CodeUnreachable, baseURL, trim(err.Error()))
 	}
 	if code == http.StatusUnauthorized || code == http.StatusForbidden {
-		return nil, fmt.Errorf("%s", i18n.T("probe.badKey", code))
+		return nil, newReason(CodeBadKey, code)
 	}
 	if code != http.StatusOK {
-		return nil, fmt.Errorf("%s", i18n.T("probe.badStatus", code, trim(string(raw))))
+		return nil, newReason(CodeBadStatus, code, trim(string(raw)))
 	}
 	code, raw, err = e.httpDo(ctx, spec, http.MethodGet, provider.URL(baseURL, "collections/text-to-image"), key, nil)
 	if err != nil || code != http.StatusOK {
@@ -156,7 +155,7 @@ func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key
 	if code == http.StatusOK {
 		return true, ""
 	}
-	return false, i18n.T("probe.badStatus", code, trim(string(raw)))
+	return false, CodeBadStatus.message(code, trim(string(raw)))
 }
 
 // probeEmbeddings fires one minimal embeddings request.
@@ -171,7 +170,7 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 	if code == http.StatusOK {
 		return true, ""
 	}
-	return false, i18n.T("probe.badStatus", code, trim(string(raw)))
+	return false, CodeBadStatus.message(code, trim(string(raw)))
 }
 
 func trim(s string) string {

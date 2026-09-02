@@ -48,7 +48,60 @@ func Open(path string) (*DB, error) {
 		h.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
-	return &DB{sql: h}, nil
+	d := &DB{sql: h}
+	if err := d.migrate(); err != nil {
+		h.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return d, nil
+}
+
+// added lists every column introduced after a table first shipped. CREATE TABLE IF NOT
+// EXISTS is silent about an existing table that is missing a column, and the failure
+// surfaces later as a raw SQL error from somewhere unrelated — so the columns are
+// declared here and added on open. Purely additive: nothing is renamed or dropped.
+var added = []struct{ table, column, decl string }{
+	{"sources", "status_code", `TEXT NOT NULL DEFAULT ''`},
+	{"sources", "status_remedy", `TEXT NOT NULL DEFAULT ''`},
+}
+
+func (d *DB) migrate() error {
+	for _, a := range added {
+		has, err := d.hasColumn(a.table, a.column)
+		if err != nil {
+			return err
+		}
+		if has {
+			continue
+		}
+		if _, err := d.sql.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+			a.table, a.column, a.decl)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *DB) hasColumn(table, column string) (bool, error) {
+	rows, err := d.sql.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // Close releases the handle.
@@ -71,7 +124,9 @@ type Source struct {
 	BaseURL      string `json:"base_url"`
 	KeyRef       string `json:"key_ref"`
 	Status       string `json:"status"`
+	StatusCode   string `json:"status_code"`
 	StatusReason string `json:"status_reason"`
+	StatusRemedy string `json:"status_remedy"`
 	Detected     bool   `json:"detected"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
@@ -84,31 +139,34 @@ func (d *DB) PutSource(s Source) error {
 	}
 	s.UpdatedAt = now()
 	_, err := d.sql.Exec(`
-INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_reason,detected,created_at,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,created_at,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name, provider=excluded.provider, kind=excluded.kind, lane=excluded.lane,
   base_url=excluded.base_url, key_ref=excluded.key_ref, status=excluded.status,
-  status_reason=excluded.status_reason, detected=excluded.detected, updated_at=excluded.updated_at`,
-		s.ID, s.Name, s.Provider, s.Kind, s.Lane, s.BaseURL, s.KeyRef, s.Status, s.StatusReason,
-		boolInt(s.Detected), s.CreatedAt, s.UpdatedAt)
+  status_code=excluded.status_code, status_reason=excluded.status_reason,
+  status_remedy=excluded.status_remedy, detected=excluded.detected, updated_at=excluded.updated_at`,
+		s.ID, s.Name, s.Provider, s.Kind, s.Lane, s.BaseURL, s.KeyRef, s.Status, s.StatusCode,
+		s.StatusReason, s.StatusRemedy, boolInt(s.Detected), s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
-// SetSourceStatus records the outcome of a probe or test, reason included.
-func (d *DB) SetSourceStatus(id, status, reason string) error {
-	_, err := d.sql.Exec(`UPDATE sources SET status=?, status_reason=?, updated_at=? WHERE id=?`,
-		status, reason, now(), id)
+// SetSourceStatus records the outcome of a probe or test: the code an agent branches on,
+// the message a person reads, and the remedy either can act on.
+func (d *DB) SetSourceStatus(id, status, code, reason, remedy string) error {
+	_, err := d.sql.Exec(`
+UPDATE sources SET status=?, status_code=?, status_reason=?, status_remedy=?, updated_at=?
+WHERE id=?`, status, code, reason, remedy, now(), id)
 	return err
 }
 
-const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_reason,detected,created_at,updated_at`
+const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,created_at,updated_at`
 
 func scanSource(rows interface{ Scan(...any) error }) (Source, error) {
 	var s Source
 	var det int
 	err := rows.Scan(&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef,
-		&s.Status, &s.StatusReason, &det, &s.CreatedAt, &s.UpdatedAt)
+		&s.Status, &s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &s.CreatedAt, &s.UpdatedAt)
 	s.Detected = det != 0
 	return s, err
 }
@@ -273,7 +331,7 @@ WHERE m.model_id = ? AND s.status = 'live'`, modelID)
 		if err := rows.Scan(&m.SourceID, &m.ModelID, &m.DisplayName, &caps, &mods, &m.ContextLength,
 			&as, &m.InCost, &m.OutCost, &m.ClassifiedBy, &m.UpdatedAt,
 			&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef, &s.Status,
-			&s.StatusReason, &det, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return Model{}, Source{}, err
 		}
 		m.Async, s.Detected = as != 0, det != 0
@@ -313,4 +371,44 @@ func defaultSlice(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// Learn records what a live probe discovered about a model the capability catalog had
+// nothing to say about. The probe costs a real request against a real provider; keeping
+// the answer means the next probe of that id is free, and the system quietly gets better
+// the more it is used.
+func (d *DB) Learn(modelID string, caps []string) error {
+	if modelID == "" || len(caps) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(caps)
+	if err != nil {
+		return err
+	}
+	_, err = d.sql.Exec(`
+INSERT INTO learned (model_id, capabilities, learned_at) VALUES (?,?,?)
+ON CONFLICT(model_id) DO UPDATE SET capabilities=excluded.capabilities, learned_at=excluded.learned_at`,
+		modelID, string(b), now())
+	return err
+}
+
+// Learned returns what a previous probe found for a model id.
+func (d *DB) Learned(modelID string) ([]string, bool) {
+	var raw string
+	if err := d.sql.QueryRow(`SELECT capabilities FROM learned WHERE model_id=?`, modelID).
+		Scan(&raw); err != nil {
+		return nil, false
+	}
+	var caps []string
+	if err := json.Unmarshal([]byte(raw), &caps); err != nil || len(caps) == 0 {
+		return nil, false
+	}
+	return caps, true
+}
+
+// LearnedCount reports how many ids the probe cache holds.
+func (d *DB) LearnedCount() int {
+	var n int
+	_ = d.sql.QueryRow(`SELECT COUNT(*) FROM learned`).Scan(&n)
+	return n
 }

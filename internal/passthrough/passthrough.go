@@ -137,7 +137,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	entry.LatencyMS = int(time.Since(start).Milliseconds())
 	entry.Status, entry.RespBytes = resp.StatusCode, int(n)
 	if resp.StatusCode >= 400 {
-		entry.Err = i18n.T("probe.badStatus", resp.StatusCode, "")
+		entry.Err = i18n.T("reason.bad_status", resp.StatusCode, "")
 	}
 	_ = h.db.Record(entry)
 }
