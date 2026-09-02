@@ -1,0 +1,53 @@
+{
+  "snapshot_date": "2026-09-03",
+  "source": "https://models.dev/api.json",
+  "note": "Bundled fallback only. Refreshed in the background from source; never treat these numbers as authoritative once a refresh has landed.",
+  "entries": [
+    {"match": "claude-opus-5",        "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 15,   "out_cost": 75},
+    {"match": "claude-sonnet-5",      "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 3,    "out_cost": 15},
+    {"match": "claude-opus-4",        "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 15,   "out_cost": 75},
+    {"match": "claude-sonnet-4",      "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 3,    "out_cost": 15},
+    {"match": "claude-haiku-4",       "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 0.8,  "out_cost": 4},
+    {"match": "claude-3-5-haiku",     "capabilities": ["chat","vision","tools"], "context": 200000, "in_cost": 0.8,  "out_cost": 4},
+    {"match": "claude-",              "capabilities": ["chat","tools"],          "context": 200000, "in_cost": 3,    "out_cost": 15},
+
+    {"match": "deepseek-reasoner",    "capabilities": ["chat","reasoning","tools"], "context": 64000, "in_cost": 0.55, "out_cost": 2.19},
+    {"match": "deepseek-chat",        "capabilities": ["chat","tools"],          "context": 64000,  "in_cost": 0.27, "out_cost": 1.1},
+    {"match": "deepseek-",            "capabilities": ["chat"],                  "context": 64000,  "in_cost": 0.27, "out_cost": 1.1},
+
+    {"match": "llama-3.3-70b",        "capabilities": ["chat","tools"],          "context": 131072, "in_cost": 0.59, "out_cost": 0.79},
+    {"match": "llama-3.1-8b",         "capabilities": ["chat","tools"],          "context": 131072, "in_cost": 0.05, "out_cost": 0.08},
+    {"match": "llama-4-scout",        "capabilities": ["chat","vision","tools"], "context": 131072, "in_cost": 0.11, "out_cost": 0.34},
+    {"match": "llama-4-maverick",     "capabilities": ["chat","vision","tools"], "context": 131072, "in_cost": 0.2,  "out_cost": 0.6},
+    {"match": "mixtral-",             "capabilities": ["chat","tools"],          "context": 32768,  "in_cost": 0.24, "out_cost": 0.24},
+    {"match": "qwen",                 "capabilities": ["chat","tools"],          "context": 32768},
+    {"match": "gemma",                "capabilities": ["chat"],                  "context": 8192},
+    {"match": "phi",                  "capabilities": ["chat"],                  "context": 16384},
+    {"match": "mistral",              "capabilities": ["chat","tools"],          "context": 32768},
+
+    {"match": "gpt-4o-mini",          "capabilities": ["chat","vision","tools"], "context": 128000, "in_cost": 0.15, "out_cost": 0.6},
+    {"match": "gpt-4o",               "capabilities": ["chat","vision","tools"], "context": 128000, "in_cost": 2.5,  "out_cost": 10},
+    {"match": "gpt-4.1",              "capabilities": ["chat","vision","tools"], "context": 1000000,"in_cost": 2,    "out_cost": 8},
+    {"match": "gpt-image-1",          "capabilities": ["image"],                 "context": 0},
+    {"match": "dall-e",               "capabilities": ["image"],                 "context": 0},
+    {"match": "whisper",              "capabilities": ["audio"],                 "context": 0},
+    {"match": "tts-",                 "capabilities": ["audio"],                 "context": 0},
+    {"match": "o3",                   "capabilities": ["chat","reasoning","tools"], "context": 200000},
+    {"match": "o1",                   "capabilities": ["chat","reasoning"],      "context": 200000},
+
+    {"match": "text-embedding-3-small","capabilities": ["embeddings"],           "context": 8191,  "in_cost": 0.02},
+    {"match": "text-embedding-3-large","capabilities": ["embeddings"],           "context": 8191,  "in_cost": 0.13},
+    {"match": "text-embedding",       "capabilities": ["embeddings"],            "context": 8191},
+    {"match": "nomic-embed",          "capabilities": ["embeddings"],            "context": 8192},
+    {"match": "mxbai-embed",          "capabilities": ["embeddings"],            "context": 512},
+    {"match": "bge-",                 "capabilities": ["embeddings"],            "context": 512},
+    {"match": "all-minilm",           "capabilities": ["embeddings"],            "context": 256},
+
+    {"match": "rerank",               "capabilities": ["rerank"],                "context": 0},
+    {"match": "llava",                "capabilities": ["chat","vision"],         "context": 4096},
+    {"match": "flux",                 "capabilities": ["image"],   "async": true},
+    {"match": "stable-diffusion",     "capabilities": ["image"],   "async": true},
+    {"match": "sdxl",                 "capabilities": ["image"],   "async": true},
+    {"match": "video",                "capabilities": ["video"],   "async": true}
+  ]
+}

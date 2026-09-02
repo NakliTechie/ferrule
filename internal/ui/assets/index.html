@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Ferrule</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+<div id="shell">
+  <aside id="rail">
+    <div id="brand">
+      <h1>Ferrule</h1>
+      <div class="sub" data-s="app.tagline-short">a local key vault and model router</div>
+    </div>
+    <nav id="nav" aria-label="Sections"></nav>
+    <div id="rail-foot">
+      <div><span class="k">vault</span> <span id="foot-vault" class="mono">—</span></div>
+      <div><span class="k">catalog</span> <span id="foot-catalog" class="mono">—</span></div>
+      <div><span class="k">config</span> <span id="foot-dir" class="mono" title="">—</span></div>
+      <button class="link" id="foot-sov" type="button">why keys live here</button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header class="bar" id="bar"></header>
+    <div id="panes">
+      <section class="pane" id="pane-board"></section>
+      <section class="pane" id="pane-aliases"></section>
+      <section class="pane" id="pane-add"></section>
+      <section class="pane" id="pane-usage"></section>
+      <section class="pane" id="pane-grants"></section>
+    </div>
+  </main>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="modal"><div class="pad" id="modal-body"></div></dialog>
+
+<script src="/ui/app.js"></script>
+</body>
+</html>

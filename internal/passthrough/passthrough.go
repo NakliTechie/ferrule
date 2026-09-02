@@ -1,0 +1,175 @@
+// Package passthrough is Ferrule's media lane (§2.5): the provider's own request and
+// response shape, untouched, with the stored key injected and the egress logged.
+//
+// The unification here is at the vault and observability layer, not the request-shape
+// layer. Ferrule does not pretend Replicate is OpenAI-compatible; it just stops you from
+// keeping that token in fourteen places.
+package passthrough
+
+import (
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"ferrule/internal/i18n"
+	"ferrule/internal/provider"
+	"ferrule/internal/router"
+	"ferrule/internal/store"
+	"ferrule/internal/vault"
+)
+
+// Prefix is the mount root. A source named `replicate` is reached at /p/replicate/…
+const Prefix = "/p/"
+
+// Handler serves the passthrough mounts.
+type Handler struct {
+	db     *store.DB
+	vault  vault.Vault
+	client *http.Client
+}
+
+// New builds a passthrough handler.
+func New(db *store.DB, v vault.Vault) *Handler {
+	return &Handler{db: db, vault: v, client: &http.Client{Timeout: 0}}
+}
+
+// Mount registers the media lane on mux.
+func (h *Handler) Mount(mux *http.ServeMux) { mux.HandleFunc(Prefix, h.serve) }
+
+// hopByHop headers are connection-scoped and must not be relayed.
+var hopByHop = map[string]bool{
+	"Connection": true, "Keep-Alive": true, "Proxy-Authenticate": true,
+	"Proxy-Authorization": true, "Te": true, "Trailer": true,
+	"Transfer-Encoding": true, "Upgrade": true,
+}
+
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
+	tok := bearer(r)
+	if tok == "" {
+		http.Error(w, i18n.T("grant.missing"), http.StatusUnauthorized)
+		return
+	}
+	g, err := h.db.GrantByToken(tok)
+	if err != nil || g.Revoked() {
+		http.Error(w, i18n.T("grant.rejected"), http.StatusUnauthorized)
+		return
+	}
+
+	rest := strings.TrimPrefix(r.URL.Path, Prefix)
+	name, tail, _ := strings.Cut(rest, "/")
+	if name == "" {
+		http.Error(w, i18n.T("source.notFound", ""), http.StatusNotFound)
+		return
+	}
+	src, err := h.db.SourceByName(name)
+	if err != nil {
+		http.Error(w, i18n.T("source.notFound", name), http.StatusNotFound)
+		return
+	}
+	spec, ok := provider.Get(src.Provider)
+	if !ok {
+		http.Error(w, i18n.T("source.unknownProvider", src.Provider, provider.Names()), http.StatusBadGateway)
+		return
+	}
+	key := ""
+	if src.KeyRef != "" {
+		if key, err = h.vault.Get(src.KeyRef); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+
+	target := provider.URL(src.BaseURL, tail)
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	upReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Every header the caller sent is relayed verbatim, except the hop-by-hop set and the
+	// Ferrule app token, which is replaced by the provider key. Nothing else is touched:
+	// that byte-identity is the promise of this lane.
+	for k, vs := range r.Header {
+		if hopByHop[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "X-Api-Key") {
+			continue
+		}
+		for _, v := range vs {
+			upReq.Header.Add(k, v)
+		}
+	}
+	upReq.Header.Del("Accept-Encoding")
+	spec.Authorize(upReq, key)
+	upReq.ContentLength = r.ContentLength
+
+	entry := store.Entry{
+		GrantID: g.ID, App: g.App, SourceID: src.ID, Provider: src.Provider,
+		ModelID: tail, RequestedModel: name + "/" + tail, Lane: store.LanePassthrough,
+		Egress: router.Egress(src.BaseURL), ReqBytes: int(max64(r.ContentLength, 0)),
+	}
+	start := time.Now()
+	resp, err := h.client.Do(upReq)
+	if err != nil {
+		entry.LatencyMS = int(time.Since(start).Milliseconds())
+		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", src.Name, err.Error())
+		_ = h.db.Record(entry)
+		http.Error(w, entry.Err, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vs := range resp.Header {
+		if hopByHop[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	n, _ := io.Copy(flushWriter{w}, resp.Body)
+
+	entry.LatencyMS = int(time.Since(start).Milliseconds())
+	entry.Status, entry.RespBytes = resp.StatusCode, int(n)
+	if resp.StatusCode >= 400 {
+		entry.Err = i18n.T("probe.badStatus", resp.StatusCode, "")
+	}
+	_ = h.db.Record(entry)
+}
+
+// flushWriter pushes each chunk out as it arrives so a streaming provider stays streaming.
+type flushWriter struct{ w http.ResponseWriter }
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if fl, ok := f.w.(http.Flusher); ok {
+		fl.Flush()
+	}
+	return n, err
+}
+
+func bearer(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return r.Header.Get("X-Api-Key")
+	}
+	if len(h) > 7 && strings.EqualFold(h[:7], "bearer ") {
+		return strings.TrimSpace(h[7:])
+	}
+	if len(h) > 6 && strings.EqualFold(h[:6], "token ") {
+		return strings.TrimSpace(h[6:])
+	}
+	return strings.TrimSpace(h)
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
