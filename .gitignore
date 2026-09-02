@@ -1,0 +1,17 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Planning (local only)
+plan/
+
+# Build output
+/ferrule
+/dist/
+*.test
+
+# Local state
+*.db
+*.db-shm
+*.db-wal
+.ferrule-dev/
