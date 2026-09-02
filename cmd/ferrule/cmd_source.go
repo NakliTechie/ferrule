@@ -35,6 +35,14 @@ func cmdAdd(args []string) error {
 	defer a.Close()
 	ctx := context.Background()
 
+	a.Discovery.OnStep(func(st discovery.Step) {
+		if st.Source != "" {
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", st.Source, st.Note)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "  %s\n", st.Note)
+	})
+
 	if *detect || fs.NArg() == 0 {
 		fmt.Println(i18n.T("serve.detecting"))
 		results, err := a.Discovery.Detect(ctx)

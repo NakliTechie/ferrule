@@ -20,8 +20,13 @@ nothing of ours in the loop.
 **Zero-config discovery — probe, don't declare.** Every comparable tool asks you to
 hand-write a config listing models and endpoints. Ferrule opens already knowing: it scans
 localhost for running runtimes and adopts them, and adding a cloud provider is *paste a
-key*, not *edit a file*. On a first run against an empty config directory, with an Ollama
-running, the board shows a live routable model in **267 ms** — no file, no restart.
+key*, not *edit a file*. No config file, no restart.
+
+The panel is usable in **377 ms** cold. Getting a *routable* model takes as long as the
+runtime takes to serve one real request — 0.17 s against a warm Ollama, a few seconds
+with the model unloaded, up to a minute on a genuinely cold one. Ferrule ends every
+adoption with a real request rather than trusting a listing, and both the CLI and the
+board say so while they wait.
 
 **Egress visibility — what actually left the machine.** Cost dashboards are everywhere; a
 data-egress dashboard is not. Because Ferrule knows which requests stayed on-device and

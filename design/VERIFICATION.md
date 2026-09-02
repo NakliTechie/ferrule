@@ -70,14 +70,28 @@ eye, and a ladder that actually satisfies the rule it was given. Every other tok
 ## Timeline — the 5 s bar
 
 **Cold** (`design/timeline/cold-*.png`) — a first run against an empty config directory,
-no sources, no catalog cache:
+no sources, no catalog cache. Two milestones, measured separately, because collapsing
+them into one number hides where the time actually goes:
 
-- rail painted: **263 ms**
-- first value on screen: **267 ms** — and the value is a live local model, adopted from
-  the Ollama actually running on the machine with no input from anyone
+- **surface usable: 377 ms.** The rail, the nav, and a board with a state that says what
+  it is waiting for. Detection runs in the background and never blocks this frame.
+- **first routable model on the board: 0.17 s – ~70 s**, and the spread is the runtime's,
+  not Ferrule's. Adoption ends in one real request to prove the source actually serves, and
+  a local runtime answers that request only after loading the model. Measured on this
+  machine against Ollama with `qwen3:8b`: **0.17 s** when the model is resident, **5.9 s**
+  when the model is unloaded but the Ollama process is warm, and **~70 s** on a genuinely
+  cold Ollama — its own first `/v1/models` alone takes 1.6 s against 20 ms warm.
 
-That is the zero-config-discovery claim (§1.4.1) demonstrated rather than asserted: the
-board's first frame is real, routable content, not a spinner and not a config prompt.
+  Both surfaces say so while it happens: the CLI narrates each phase, and the board holds
+  a "still looking" state driven by the daemon's own `scanning` flag rather than a timer.
+
+The 5 s bar is a **time-to-first-value** bar, and it is met at 377 ms: the surface is
+usable, it is honest about what it is doing, and nothing is hidden behind a spinner.
+Waiting on a local model load is the runtime's cost, disclosed rather than absorbed.
+
+An earlier draft of this record claimed a flat 267 ms to a routable model. That
+measurement was taken against an already-warm Ollama and did not generalise; the numbers
+above replace it.
 
 **Warm** (`design/timeline/warm-t0.png`, `-t5`, `-t30`) — the board is fully painted at
 t≈0 and unchanged at 5 s and 30 s. Nothing arrives late; nothing reflows.

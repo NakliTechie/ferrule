@@ -2,10 +2,15 @@ package discovery_test
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ferrule/internal/app"
 	"ferrule/internal/discovery"
@@ -253,5 +258,80 @@ func TestUnknownProviderIsRefusedLoudly(t *testing.T) {
 	}
 	if _, ok := provider.Get("openai-compatible"); !ok {
 		t.Error("the generic OpenAI-compatible provider is missing from the seed set")
+	}
+}
+
+// A local runtime that is slow to answer its first request must still be detected.
+//
+// This is the regression for a real failure: Ollama takes well over a second to serve
+// its first /v1/models in a cold process and about twenty milliseconds thereafter. A
+// single short detection budget caught the warm case and missed the cold one, so a
+// runtime that was plainly running reported as "not detected" — intermittently, which is
+// the worst way to be wrong about the one feature the product leads with.
+func TestSlowToWakeRuntimeIsStillDetected(t *testing.T) {
+	a := newApp(t)
+
+	var once sync.Once
+	slow := mock.New("", "qwen3:8b")
+	defer slow.Close()
+	base := slow.Server.URL
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The first request pays the wake-up cost, well past any sub-second budget.
+		once.Do(func() { time.Sleep(1500 * time.Millisecond) })
+		proxy, _ := http.NewRequest(r.Method, base+r.URL.Path, r.Body)
+		proxy.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(proxy)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vs := range resp.Header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer gate.Close()
+
+	a.Discovery.SetDetectURLs("ollama", []string{gate.URL + "/v1"})
+	a.Discovery.SetDetectURLs("lmstudio", nil)
+	a.Discovery.SetDetectURLs("llamacpp", nil)
+
+	res, err := a.Discovery.Detect(context.Background())
+	if err != nil {
+		t.Fatalf("detect: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("detected %d runtimes, want 1 — a slow first response is not an absent runtime", len(res))
+	}
+	if res[0].Source.Status != store.StatusLive {
+		t.Fatalf("status %q: %s", res[0].Source.Status, res[0].Reason.Message)
+	}
+}
+
+// A scan of dead ports must stay fast: the connect probe is what keeps it so.
+func TestScanningDeadPortsIsFast(t *testing.T) {
+	a := newApp(t)
+	dead := []string{
+		"http://127.0.0.1:9/v1", "http://127.0.0.1:10/v1", "http://127.0.0.1:11/v1",
+	}
+	a.Discovery.SetDetectURLs("ollama", dead)
+	a.Discovery.SetDetectURLs("lmstudio", dead)
+	a.Discovery.SetDetectURLs("llamacpp", dead)
+
+	start := time.Now()
+	res, err := a.Discovery.Detect(context.Background())
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("detected %d runtimes on dead ports", len(res))
+	}
+	if elapsed > time.Second {
+		t.Errorf("scanning 9 dead ports took %v; a closed port answers in milliseconds", elapsed)
 	}
 }

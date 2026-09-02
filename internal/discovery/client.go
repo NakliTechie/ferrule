@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"ferrule/internal/provider"
+	"ferrule/internal/store"
 )
 
 // httpDo issues a request against a source with its credentials attached.
@@ -45,6 +48,8 @@ type listedModel struct {
 // list runs the provider's model-listing dialect. This is the probe step (§2.3).
 // A failure comes back as a typed Reason, never as prose.
 func (e *Engine) list(ctx context.Context, spec provider.Spec, baseURL, key string) ([]listedModel, error) {
+	ctx, cancel := context.WithTimeout(ctx, listBudget)
+	defer cancel()
 	switch spec.Listing {
 	case provider.ListReplicate:
 		return e.listReplicate(ctx, spec, baseURL, key)
@@ -137,40 +142,71 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 	return out, nil
 }
 
+// listBudget covers a model listing: an HTTP round trip, plus whatever a cold runtime
+// spends scanning its own model directory.
+const listBudget = 30 * time.Second
+
+// probeBudget is how long one test or classification request may take.
+//
+// A cloud provider that has not answered in 45 seconds is not going to. A local runtime
+// is a different animal: its first chat completion has to load the model into memory,
+// which on a laptop with an 8B model is minutes, not seconds. Judging a local runtime by
+// a cloud provider's clock marks a working runtime dead — which is exactly what a short
+// budget did here before this comment existed.
+func probeBudget(spec provider.Spec) time.Duration {
+	if spec.Kind == store.KindLocal {
+		return 4 * time.Minute
+	}
+	return 45 * time.Second
+}
+
 // probeChat fires one minimal chat request. Used as the live-probe classifier and as the
-// test step for the raw-tokens lane.
-func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key, modelID string) (bool, string) {
+// test step for the raw-tokens lane. The second return distinguishes a timeout from a
+// refusal: they call for different next moves.
+func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key, modelID string) (bool, Reason) {
 	body, _ := json.Marshal(map[string]any{
 		"model":      modelID,
 		"messages":   []map[string]string{{"role": "user", "content": "hi"}},
 		"max_tokens": 1,
 		"stream":     false,
 	})
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	budget := probeBudget(spec)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	code, raw, err := e.httpDo(ctx, spec, http.MethodPost, provider.URL(baseURL, "chat/completions"), key, body)
 	if err != nil {
-		return false, trim(err.Error())
+		return false, timeoutOrFailure(ctx, err, budget)
 	}
 	if code == http.StatusOK {
-		return true, ""
+		return true, Reason{Code: CodeOK}
 	}
-	return false, CodeBadStatus.message(code, trim(string(raw)))
+	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trim(string(raw))))
+}
+
+// timeoutOrFailure names what actually went wrong. "It refused" and "it never answered"
+// are different problems with different next moves, so they get different codes.
+func timeoutOrFailure(ctx context.Context, err error, budget time.Duration) Reason {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) ||
+		os.IsTimeout(err) {
+		return newReason(CodeTestTimeout, budget.String())
+	}
+	return newReason(CodeTestFailed, trim(err.Error()))
 }
 
 // probeEmbeddings fires one minimal embeddings request.
-func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseURL, key, modelID string) (bool, string) {
+func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseURL, key, modelID string) (bool, Reason) {
 	body, _ := json.Marshal(map[string]any{"model": modelID, "input": "hi"})
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	budget := probeBudget(spec)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	code, raw, err := e.httpDo(ctx, spec, http.MethodPost, provider.URL(baseURL, "embeddings"), key, body)
 	if err != nil {
-		return false, trim(err.Error())
+		return false, timeoutOrFailure(ctx, err, budget)
 	}
 	if code == http.StatusOK {
-		return true, ""
+		return true, Reason{Code: CodeOK}
 	}
-	return false, CodeBadStatus.message(code, trim(string(raw)))
+	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trim(string(raw))))
 }
 
 func trim(s string) string {

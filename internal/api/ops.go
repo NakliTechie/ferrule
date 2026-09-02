@@ -38,6 +38,7 @@ func (b *Bus) register() {
 			}
 			return map[string]any{
 				"config_dir": a.Dir, "vault": a.Vault.Backend(),
+				"scanning":     a.Discovery.Scanning(),
 				"catalog_date": a.Catalog.Date(), "catalog_stale": a.Catalog.Stale(),
 				"sources": len(srcs), "sources_live": live, "models": len(models),
 				"platform":        runtime.GOOS + "/" + runtime.GOARCH,

@@ -203,5 +203,14 @@
   "next.nothing": "Nothing is waiting.",
   "cli.status.title": "ferrule %s · %s",
   "classify.learned": "learned by an earlier probe",
-  "next.reprobe": "Re-probe it with `ferrule add` or the Refresh button to get a typed reason."
+  "next.reprobe": "Re-probe it with `ferrule add` or the Refresh button to get a typed reason.",
+  "reason.test_timeout": "the test request timed out after %s",
+  "remedy.test_timeout": "A local runtime does this while it loads a model into memory. Wait a moment and add it again; the second attempt is quick.",
+  "remedy.test_failed_local": "The runtime listed models but would not serve one. Check its own logs.",
+  "step.probe": "asking %s what it has…",
+  "step.classify": "classifying %d model(s)…",
+  "step.test": "firing one real request to be sure it serves…",
+  "step.testLocal": "firing one real request to be sure it serves — a local runtime may need to load the model first, which can take a minute on a cold start…",
+  "step.detected": "found %d runtime(s); adopting…",
+  "ui.board.detectingBody": "Ferrule is firing one real request at each runtime it found, to be sure it serves. A local runtime may need to load a model first, which can take a minute on a cold start."
 }

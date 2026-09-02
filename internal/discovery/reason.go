@@ -21,6 +21,7 @@ const (
 	CodeNoModels        Code = "no_models"
 	CodeLocalNoModels   Code = "local_no_models"
 	CodeTestFailed      Code = "test_failed"
+	CodeTestTimeout     Code = "test_timeout"
 	CodeUnknownProvider Code = "unknown_provider"
 	CodeNeedsKey        Code = "needs_key"
 	CodeNeedsBaseURL    Code = "needs_base_url"
@@ -58,6 +59,8 @@ func (c Code) message(detail ...any) string {
 		return i18n.T("reason.local_no_models", detail...)
 	case CodeTestFailed:
 		return i18n.T("reason.test_failed", detail...)
+	case CodeTestTimeout:
+		return i18n.T("reason.test_timeout", detail...)
 	case CodeUnknownProvider:
 		return i18n.T("reason.unknown_provider", detail...)
 	case CodeNeedsKey:
@@ -82,6 +85,8 @@ func (c Code) remedy() string {
 		return i18n.T("remedy.local_no_models")
 	case CodeTestFailed:
 		return i18n.T("remedy.test_failed")
+	case CodeTestTimeout:
+		return i18n.T("remedy.test_timeout")
 	case CodeUnknownProvider:
 		return i18n.T("remedy.unknown_provider")
 	case CodeNeedsKey:
@@ -97,6 +102,15 @@ func newReason(code Code, detail ...any) Reason {
 	return Reason{Code: code, Message: code.message(detail...), Remedy: code.remedy()}
 }
 
+// localRemedy swaps in the remedy that fits a source with no key. Telling someone to
+// "check the key's scope" for a keyless local runtime is worse than saying nothing.
+func (r Reason) localRemedy() Reason {
+	if r.Code == CodeTestFailed {
+		r.Remedy = i18n.T("remedy.test_failed_local")
+	}
+	return r
+}
+
 // reasonf builds a reason whose message is already assembled.
 func reasonf(code Code, message string) Reason {
 	return Reason{Code: code, Message: message, Remedy: code.remedy()}
@@ -105,7 +119,8 @@ func reasonf(code Code, message string) Reason {
 // Codes lists the closed vocabulary, for the agent contract and for tests.
 func Codes() []Code {
 	return []Code{CodeOK, CodeUnreachable, CodeBadKey, CodeBadStatus, CodeNoModels,
-		CodeLocalNoModels, CodeTestFailed, CodeUnknownProvider, CodeNeedsKey, CodeNeedsBaseURL}
+		CodeLocalNoModels, CodeTestFailed, CodeTestTimeout, CodeUnknownProvider,
+		CodeNeedsKey, CodeNeedsBaseURL}
 }
 
 // Code_ returns the code as a plain string, for storage.

@@ -130,6 +130,7 @@ async function loadAll() {
     op("list_remaps"), op("list_grants"), op("list_staged"),
   ]);
   state.status = st;
+  state.detecting = !!st.scanning;
   state.sources = sources.sources || [];
   state.models = models.models || [];
   state.catalogDate = models.catalog_date;
@@ -293,7 +294,8 @@ function emptyBoard() {
   if (state.detecting) {
     return el("div", { class: "state" },
       el("h3", { class: "pulse", text: T("ui.board.empty") }),
-      el("p", { text: T("ui.board.emptyHint") }));
+      el("p", { text: T("ui.board.detectingBody") }),
+      el("p", { class: "note", text: T("ui.board.emptyHint") }));
   }
   return el("div", { class: "state" },
     el("h3", { text: T("ui.board.emptyDone") }),
@@ -787,10 +789,25 @@ document.addEventListener("keydown", (e) => {
   render();                        // paints the rail and the detecting state immediately
   await loadAll();
   render();
-  // Detection runs at daemon start; a fresh board may still be filling in.
-  state.detecting = state.models.length === 0;
-  render();
-  if (state.detecting) {
-    setTimeout(async () => { await loadAll(); state.detecting = false; render(); }, 1500);
-  }
+  // Detection runs at daemon start and can legitimately take a minute when a local
+  // runtime has to load a model to answer the test request. The daemon says when it is
+  // still looking; guessing on a timer here is how a board announces "nothing found"
+  // while the scan is still running.
+  pollWhileScanning();
 })();
+
+async function pollWhileScanning() {
+  let waited = 0;
+  while (state.detecting && waited < 5 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 1200));
+    waited += 1200;
+    try {
+      await loadAll();
+    } catch { break; }
+    render();
+  }
+  if (state.detecting) {
+    state.detecting = false;
+    render();
+  }
+}
