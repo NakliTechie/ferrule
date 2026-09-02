@@ -91,3 +91,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Cache-Control", "no-cache")
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// Asset returns one embedded panel file. The parity lint reads the shipped JS through
+// this rather than a copy on disk, so what is checked is what ships.
+func Asset(name string) ([]byte, error) { return assets.ReadFile("assets/" + name) }

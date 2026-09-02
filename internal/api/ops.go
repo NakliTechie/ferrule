@@ -18,8 +18,10 @@ import (
 	"ferrule/internal/store"
 )
 
-func stagedMsg(op string) string     { return i18n.T("mcp.stage.pending", op) }
-func personOnlyMsg(op string) string { return i18n.T("mcp.personOnly", op) }
+func stagedMsg(op string) string        { return i18n.T("mcp.stage.pending", op) }
+func personOnlyMsg(op string) string    { return i18n.T("mcp.personOnly", op) }
+func stagedAppliedMsg(op string) string { return i18n.T("mcp.stage.applied", op) }
+func stagedMissingMsg(id string) string { return i18n.T("mcp.stage.notFound", id) }
 
 func (b *Bus) register() {
 	// ---- read ops: registered on load, no setting, never staged ----
@@ -227,7 +229,8 @@ func (b *Bus) register() {
 			if err := a.Discovery.Remove(args.Str("id")); err != nil {
 				return nil, err
 			}
-			return map[string]any{"removed": args.Str("id")}, nil
+			return map[string]any{"removed": args.Str("id"),
+				"message": i18n.T("source.removed", args.Str("id"))}, nil
 		}})
 
 	b.add(&Op{Name: "detect_local", Desc: i18n.T("op.detect_local"), Mutating: true,
@@ -391,7 +394,8 @@ func decorate(a *app.App, as []store.Alias) []map[string]any {
 				entry["source"], entry["where"] = s.Name, s.Kind
 				entry["available"] = s.Status == store.StatusLive
 				if s.Status != store.StatusLive {
-					entry["reason"] = i18n.T("route.sourceNotLive", s.Name, s.Status)
+					entry["reason"] = i18n.T("alias.rungUnavailable", len(rungs)+1,
+						s.Name+"/"+r.ModelID, i18n.SourceStatus(s.Status))
 				}
 			}
 			rungs = append(rungs, entry)

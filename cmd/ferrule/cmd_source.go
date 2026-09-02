@@ -34,7 +34,7 @@ func cmdAdd(args []string) error {
 	ctx := context.Background()
 
 	if *detect || fs.NArg() == 0 {
-		fmt.Println(i18n.T("detect.scanning"))
+		fmt.Println(i18n.T("serve.detecting"))
 		results, err := a.Discovery.Detect(ctx)
 		if err != nil {
 			return err
@@ -126,7 +126,7 @@ func cmdLs(args []string) error {
 		fmt.Fprintln(w, "NAME\tPROVIDER\tWHERE\tLANE\tSTATUS\tDETAIL")
 		for _, s := range srcs {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, s.Kind, s.Lane,
-				i18n.T("source.status."+s.Status), s.StatusReason)
+				i18n.SourceStatus(s.Status), s.StatusReason)
 		}
 		return nil
 	case "aliases", "alias":

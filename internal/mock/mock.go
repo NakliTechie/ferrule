@@ -100,7 +100,7 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/predictions" && r.Method == http.MethodPost:
 		writeJSON(w, map[string]any{
 			"id": "pred_harness_1", "status": "succeeded", "model": "black-forest-labs/flux-schnell",
-			"output": []string{"https://example.invalid/out.webp"},
+			"output":  []string{"https://example.invalid/out.webp"},
 			"metrics": map[string]any{"predict_time": 1.25},
 		})
 	default:

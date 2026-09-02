@@ -116,3 +116,19 @@ func Keys() []string {
 
 // LoadError surfaces a malformed bundled locale at startup.
 func LoadError() error { once.Do(load); return loadErr }
+
+// SourceStatus returns the localized label for a source status. Statuses are computed,
+// so this exists to keep every status key statically referenced and lintable rather than
+// assembled from a string prefix at the call site.
+func SourceStatus(status string) string {
+	switch status {
+	case "live":
+		return T("source.status.live")
+	case "failed":
+		return T("source.status.failed")
+	case "probing":
+		return T("source.status.probing")
+	default:
+		return status
+	}
+}

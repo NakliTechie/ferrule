@@ -694,7 +694,8 @@ document.addEventListener("keydown", (e) => {
         ...VIEWS.map(([id, key], i) => [el("dt", { text: String(i + 1) }), el("dd", { text: T(key) })]).flat(),
         el("dt", { text: "/" }), el("dd", { text: T("ui.filter.search") }),
       ),
-      el("p", { class: "note", style: "margin-top:12px", text: T("ui.help.body") }),
+      el("p", { class: "note", style: "margin-top:12px", text: T("app.tagline") }),
+      el("p", { class: "note", text: T("ui.help.body") }),
       el("button", { class: "act", type: "button", text: T("ui.action.close"), onclick: closeModal }));
   }
   const n = parseInt(e.key, 10);
@@ -705,6 +706,9 @@ document.addEventListener("keydown", (e) => {
 
 (async function boot() {
   S = await (await fetch("/ui/strings.json")).json();
+  document.title = T("app.name");
+  $("#brand h1").textContent = T("app.name");
+  $("#brand .sub").textContent = T("app.tagline-short");
   state.providers = (await (await fetch("/ui/providers.json")).json()).providers;
   render();                        // paints the rail and the detecting state immediately
   await loadAll();

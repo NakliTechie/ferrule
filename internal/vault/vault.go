@@ -138,7 +138,10 @@ func (v *ageVault) load() error {
 func (v *ageVault) decrypt(raw []byte) (map[string]string, error) {
 	r, err := age.Decrypt(bytes.NewReader(raw), v.ident)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("vault.badPassphrase"), err)
+		if v.scrypted {
+			return nil, fmt.Errorf("%s: %w", i18n.T("vault.badPassphrase"), err)
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("vault.locked"), err)
 	}
 	plain, err := io.ReadAll(r)
 	if err != nil {
@@ -193,7 +196,7 @@ func (v *ageVault) Get(ref string) (string, error) {
 	defer v.mu.RUnlock()
 	s, ok := v.cache[ref]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, ref)
+		return "", fmt.Errorf("%w: %s", ErrNotFound, i18n.T("vault.noKey", ref))
 	}
 	return s, nil
 }

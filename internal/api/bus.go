@@ -185,7 +185,7 @@ func (b *Bus) Stage(name string, args Args, door, caller string) (any, error) {
 func (b *Bus) Apply(ctx context.Context, id string, extra Args, door, caller string) (any, error) {
 	s, err := b.app.DB.StagedOp(id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s", stagedMissingMsg(id))
 	}
 	if s.AppliedAt != 0 {
 		return nil, fmt.Errorf("staged op %s was already applied", id)
@@ -204,5 +204,6 @@ func (b *Bus) Apply(ctx context.Context, id string, extra Args, door, caller str
 	if err := b.app.DB.MarkApplied(id); err != nil {
 		return nil, err
 	}
-	return res, nil
+	return map[string]any{"applied": id, "op": s.Op, "result": res,
+		"message": stagedAppliedMsg(s.Op)}, nil
 }
