@@ -70,6 +70,8 @@ const state = {
   staged: [],
   usage: null,
   egress: null,
+  lastAdd: null,
+  addProvider: "",
   status: null,
   detecting: true,
   filters: { where: "", capability: "", q: "" },
@@ -85,7 +87,7 @@ const VIEWS = [
 ];
 
 function renderNav() {
-  $("#nav").replaceChildren(
+  const items = [
     ...VIEWS.map(([id, key, count]) =>
       el(
         "button",
@@ -106,12 +108,19 @@ function renderNav() {
         }, el("span", { text: T("ui.nav.staged") }),
            el("span", { class: "count", text: String(state.staged.length) }))
       : null,
-  );
+  ].filter(Boolean);
+  $("#nav").replaceChildren(...items);
 }
 
-function go(view) {
+async function go(view) {
   state.view = view;
   render();
+  // The ledger is only read when the person asks to see it, and the pane paints its
+  // loading state first rather than blocking the switch.
+  if (view === "usage") {
+    try { await loadUsage(); } catch (err) { toast(err.message, "error"); }
+    render();
+  }
 }
 
 /* ---------- data ---------- */
@@ -249,17 +258,25 @@ function renderBoardBody() {
 }
 
 function sourceStrip() {
-  return el("div", { class: "grid", style: "grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))" },
+  return el("div", { class: "grid cards" },
     ...state.sources.map((s) =>
       el("div", { class: "card" },
         el("h3", {}, el("span", { class: "dot", "data-s": s.status }), s.name),
         el("div", { class: "meta" },
           el("span", { class: "tag", "data-where": s.where, text: s.where }), " ",
-          el("span", { class: "tag", text: s.lane }), " ",
-          el("span", { class: "mono", text: T("ui.source.modelCount", s.models) }),
+          el("span", { class: "tag", text: s.lane }),
+          // A failed source is not routable, so its last-known model count would only
+          // contradict the board below it.
+          s.status === "live"
+            ? el("span", {
+                text: " " + (s.models === 1
+                  ? T("ui.source.modelCountOne")
+                  : T("ui.source.modelCount", s.models)),
+              })
+            : null,
         ),
         s.status === "failed" ? el("div", { class: "why", text: s.reason }) : null,
-        el("div", { style: "margin-top:8px; display:flex; gap:6px" },
+        el("div", { class: "actions" },
           el("button", { class: "act", type: "button", text: T("ui.action.refresh"),
             onclick: () => run(() => op("refresh_source", { id: s.id }), T("ui.action.refresh")) }),
           el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.action.remove"),
@@ -294,7 +311,7 @@ async function rescan() {
 function confirmRemove(s) {
   modal(T("ui.confirm.removeSource", s.name),
     el("p", { class: "note", text: T("ui.confirm.removeSourceBody") }),
-    el("div", { style: "display:flex; gap:8px; margin-top:12px" },
+    el("div", { class: "actions-lg" },
       el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.action.remove"),
         onclick: async () => { closeModal(); await run(() => op("remove_source", { id: s.id }), T("ui.action.remove")); } }),
       el("button", { class: "act", type: "button", text: T("ui.action.cancel"), onclick: closeModal }),
@@ -321,7 +338,7 @@ function renderAliases(pane, bar) {
           ),
         ),
       ),
-      el("div", { style: "margin-top:8px; display:flex; gap:6px" },
+      el("div", { class: "actions" },
         el("button", { class: "act", type: "button", text: T("ui.action.edit"), onclick: () => aliasEditor(a) }),
         el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.action.remove"),
           onclick: () => run(() => op("remove_alias", { name: a.name }), T("ui.action.remove")) }),
@@ -332,7 +349,7 @@ function renderAliases(pane, bar) {
     el("h3", { text: T("ui.remap.title") }),
     el("p", { class: "note", text: T("ui.remap.body") }),
     ...state.remaps.map((r) =>
-      el("div", { class: "mono", style: "font-size:11.5px; margin-top:4px" },
+      el("div", { class: "mono remap-line" },
         r.from_model + " → " + r.target + "  ",
         el("button", { class: "act", type: "button", text: T("ui.action.remove"),
           onclick: () => run(() => op("remove_remap", { from: r.from_model }), T("ui.action.remove")) }),
@@ -342,11 +359,11 @@ function renderAliases(pane, bar) {
   );
   pane.replaceChildren(
     state.aliases.length
-      ? el("div", { class: "grid", style: "grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))" }, ...cards)
+      ? el("div", { class: "grid cards-wide" }, ...cards)
       : el("div", { class: "state" },
           el("h3", { text: T("ui.alias.emptyTitle") }),
           el("p", { text: T("ui.alias.emptyBody") })),
-    el("div", { class: "grid", style: "margin-top:1px" }, remaps),
+    el("div", { class: "grid stack" }, remaps),
   );
 }
 
@@ -355,7 +372,7 @@ const firstLive = (a) => a.rungs.findIndex((r) => r.available);
 function remapForm() {
   const from = el("input", { type: "text", placeholder: "gpt-4o" });
   const to = el("select", {}, ...routeOptions());
-  return el("form", { class: "row", style: "margin-top:10px",
+  return el("form", { class: "row mt10",
     onsubmit: (e) => { e.preventDefault();
       run(() => op("set_remap", { from: from.value, to: to.value }), T("ui.remap.title")); } },
     el("label", { class: "field" }, T("ui.remap.from"), from),
@@ -381,8 +398,8 @@ function aliasEditor(existing) {
   const draw = () => {
     rows.replaceChildren(
       ...ladder.map((v, i) =>
-        el("div", { class: "row", style: "display:flex; gap:6px; align-items:center; margin-top:5px" },
-          el("span", { class: "mono", style: "color:var(--ink-30); width:16px", text: String(i + 1) }),
+        el("div", { class: "rung-row" },
+          el("span", { class: "rung", text: String(i + 1) }),
           el("select", { onchange: (e) => { ladder[i] = e.target.value; } },
             el("option", { value: "", text: "—" }),
             ...routeOptions().filter((o) => o.value.includes("/")).map((o) => {
@@ -393,16 +410,16 @@ function aliasEditor(existing) {
             onclick: () => { ladder.splice(i, 1); draw(); } }),
         ),
       ),
-      el("button", { class: "act", type: "button", text: T("ui.alias.addRung"),
-        style: "margin-top:6px", onclick: () => { ladder.push(""); draw(); } }),
+      el("button", { class: "act mt6", type: "button", text: T("ui.alias.addRung"),
+        onclick: () => { ladder.push(""); draw(); } }),
     );
   };
   draw();
   modal(existing ? T("ui.alias.edit", existing.name) : T("ui.alias.new"),
     el("label", { class: "field" }, T("ui.alias.name"), name,
       el("span", { class: "hint", text: T("ui.alias.nameHint") })),
-    el("div", { style: "margin-top:10px" }, el("div", { class: "note", text: T("ui.alias.ladderHint") }), rows),
-    el("div", { style: "display:flex; gap:8px; margin-top:14px" },
+    el("div", { class: "mt10" }, el("div", { class: "note", text: T("ui.alias.ladderHint") }), rows),
+    el("div", { class: "actions-lg" },
       el("button", { class: "act", "data-primary": true, type: "button", text: T("ui.action.save"),
         onclick: async () => {
           const rungs = ladder.filter(Boolean);
@@ -418,12 +435,16 @@ function aliasEditor(existing) {
 function renderAdd(pane, bar) {
   bar.replaceChildren(el("h2", { text: T("ui.nav.add") }));
   const providers = state.providers || [];
+  if (!state.addProvider && providers.length) state.addProvider = providers[0].id;
   const sel = el("select", {}, ...providers.map((p) =>
-    el("option", { value: p.id, text: p.label + (p.where === "local" ? " · " + T("ui.filter.local") : "") })));
+    el("option", {
+      value: p.id, selected: p.id === state.addProvider,
+      text: p.label + (p.where === "local" ? " · " + T("ui.filter.local") : ""),
+    })));
   const nameIn = el("input", { type: "text", placeholder: T("ui.add.namePlaceholder") });
   const keyIn = el("input", { type: "password", placeholder: "—", autocomplete: "off", spellcheck: "false" });
   const baseIn = el("input", { type: "text", placeholder: "https://…/v1" });
-  const out = el("div", {});
+  const out = el("div", {}, addResult());
 
   const sync = () => {
     const p = providers.find((x) => x.id === sel.value) || {};
@@ -433,48 +454,70 @@ function renderAdd(pane, bar) {
     baseIn.required = !!p.needs_base_url;
     nameIn.placeholder = p.id || "";
   };
-  sel.addEventListener("change", sync);
+  sel.addEventListener("change", () => {
+    // Clear the previous result in place. A re-render here would rebuild the form and
+    // throw away the choice that just triggered it.
+    state.addProvider = sel.value;
+    state.lastAdd = null;
+    out.replaceChildren();
+    sync();
+  });
   baseIn.addEventListener("input", () => { baseIn.dataset.touched = "1"; });
   sync();
 
   pane.replaceChildren(el("div", { class: "pad" },
     el("p", { class: "note", text: T("ui.add.body") }),
-    el("form", { class: "row", style: "margin-top:14px",
+    el("form", { class: "row mt10",
       onsubmit: async (e) => {
         e.preventDefault();
+        state.lastAdd = null;
         out.replaceChildren(el("div", { class: "state pulse", text: T("ui.add.testing") }));
         try {
           const r = await op("add_source", {
             provider: sel.value, name: nameIn.value, base_url: baseIn.value, key: keyIn.value,
           });
           keyIn.value = "";
-          if (r.live) {
-            out.replaceChildren(el("div", { class: "state" },
-              el("h3", { text: T("source.added", r.source.name, r.source.provider, T("source.status.live"), r.models) })));
-            await refresh();
-          } else {
-            out.replaceChildren(el("div", { class: "state" },
-              el("h3", { text: T("source.failed", r.source.name, "") }),
-              el("div", { class: "why", text: r.reason }),
-              el("p", { class: "note", text: T("ui.add.failHint") })));
-            await refresh();
-          }
+          // The result is held in state, not in this node: the refresh below rebuilds
+          // the pane, and a loud failure that vanished on re-render would be no failure
+          // at all.
+          state.lastAdd = r;
+          await refresh();
         } catch (err) {
-          out.replaceChildren(el("div", { class: "state" }, el("div", { class: "why", text: err.message })));
+          state.lastAdd = { error: err.message };
+          render();
         }
       } },
       el("label", { class: "field" }, T("ui.add.provider"), sel),
       el("label", { class: "field" }, T("ui.add.name"), nameIn),
       el("label", { class: "field" }, T("ui.add.key"), keyIn),
-      el("label", { class: "field", style: "flex:1; min-width:260px" }, T("ui.add.baseUrl"), baseIn),
+      el("label", { class: "field grow" }, T("ui.add.baseUrl"), baseIn),
       el("button", { class: "act", "data-primary": true, type: "submit", text: T("ui.add.submit") }),
     ),
     out,
-    el("div", { class: "note", style: "margin-top:22px" },
+    el("div", { class: "note mt22" },
       el("strong", { text: T("ui.add.detectTitle") }), " ", T("ui.add.detectBody"), " ",
       el("button", { class: "act", type: "button", text: T("ui.action.rescan"), onclick: rescan }),
     ),
   ));
+}
+
+// addResult renders the outcome of the last add. It reads from state so it survives the
+// re-render that follows a source change.
+function addResult() {
+  const r = state.lastAdd;
+  if (!r) return null;
+  if (r.error) {
+    return el("div", { class: "state" }, el("div", { class: "why", text: r.error }));
+  }
+  if (r.live) {
+    return el("div", { class: "state" }, el("h3", {
+      text: T("source.added", r.source.name, r.source.provider, T("source.status.live"), r.models),
+    }));
+  }
+  return el("div", { class: "state" },
+    el("h3", { text: T("source.failed", r.source.name, "") }),
+    el("div", { class: "why", text: r.reason }),
+    el("p", { class: "note", text: T("ui.add.failHint") }));
 }
 
 /* ---------- usage + egress ---------- */
@@ -497,8 +540,9 @@ function renderUsage(pane, bar) {
   const egressCard = el("div", { class: "card" },
     el("h3", { text: T("ui.egress.title") }),
     el("p", { class: "note", text: T("ui.egress.body") }),
-    el("div", { class: "meter", "data-cloud": cloudPct > 50 ? "" : null, style: "margin:10px 0 6px" },
-      el("i", { style: "width:" + (100 - cloudPct) + "%" })),
+    el("progress", { class: "meter", "data-cloud": cloudPct > 50 ? "" : null,
+      value: String(100 - cloudPct), max: "100",
+      "aria-label": T("ui.egress.offShare") }),
     el("dl", { class: "kv" },
       el("dt", { text: T("usage.egress.local") }),
       el("dd", { text: T("ui.egress.line", e.local.requests || 0, fmtBytes((e.local.req_bytes || 0) + (e.local.resp_bytes || 0))) }),
@@ -525,9 +569,9 @@ function renderUsage(pane, bar) {
           el("td", { text: b.app || "—" }),
           el("td", { class: "mono", text: b.model_id || "—" }),
           el("td", { class: "r num", text: String(b.requests) }),
-          el("td", { class: "r num", style: b.errors ? "color:var(--error)" : null, text: String(b.errors) }),
+          el("td", { class: b.errors ? "r num err" : "r num", text: String(b.errors) }),
           el("td", { class: "r num", text: (b.prompt_tokens + b.completion_tokens).toLocaleString() }),
-          el("td", { class: "r num", text: b.avg_latency_ms + " ms" }),
+          el("td", { class: "r num", text: fmtLatency(b.avg_latency_ms, b.requests) }),
           el("td", { class: "r num", text: "$" + b.cost.toFixed(4) }),
         ),
       ),
@@ -542,6 +586,14 @@ function renderUsage(pane, bar) {
     ),
   );
   pane.replaceChildren(el("div", { class: "grid" }, egressCard), detail);
+}
+
+// A sub-millisecond average is real, not missing. Saying "0 ms" reads as a broken
+// column; saying "<1 ms" is the same fact, legibly.
+function fmtLatency(ms, requests) {
+  if (!requests) return "—";
+  if (ms === 0) return "<1 ms";
+  return ms + " ms";
 }
 
 function fmtBytes(n) {
@@ -590,7 +642,7 @@ function mintDialog() {
   const appIn = el("input", { type: "text", placeholder: "my-script" });
   modal(T("ui.grants.mint"),
     el("label", { class: "field" }, T("ui.grants.col.app"), appIn),
-    el("div", { style: "display:flex; gap:8px; margin-top:14px" },
+    el("div", { class: "actions-lg" },
       el("button", { class: "act", "data-primary": true, type: "button", text: T("ui.grants.mint"),
         onclick: async () => {
           try {
@@ -598,11 +650,9 @@ function mintDialog() {
             const base = location.origin + "/v1";
             $("#modal-body").replaceChildren(
               el("h3", { text: T("ui.grants.shownOnce") }),
-              el("pre", { class: "mono",
-                style: "background:var(--fill); padding:10px; border-radius:3px; overflow:auto; user-select:all",
-                text: r.token }),
+              el("pre", { class: "mono code", text: r.token }),
               el("p", { class: "note", text: T("grant.minted", r.grant.app, "", location.host).split("\n").pop() }),
-              el("pre", { class: "mono", style: "background:var(--fill); padding:10px; border-radius:3px; overflow:auto",
+              el("pre", { class: "mono code",
                 text: "OPENAI_BASE_URL=" + base + "\nOPENAI_API_KEY=" + r.token }),
               el("button", { class: "act", type: "button", text: T("ui.action.close"),
                 onclick: async () => { closeModal(); await refresh(); } }),
@@ -626,8 +676,8 @@ function renderStaged(pane, bar) {
         el("h3", { text: s.op }),
         el("div", { class: "meta mono", text: JSON.stringify(args) }),
         el("div", { class: "meta", text: T("ui.staged.from", s.door, s.caller || "—") }),
-        needsKey ? el("label", { class: "field", style: "margin-top:8px" }, T("ui.add.key"), extra) : null,
-        el("div", { style: "margin-top:8px; display:flex; gap:6px" },
+        needsKey ? el("label", { class: "field mt6" }, T("ui.add.key"), extra) : null,
+        el("div", { class: "actions" },
           el("button", { class: "act", "data-primary": true, type: "button", text: T("ui.staged.apply"),
             onclick: async () => {
               const body = needsKey && extra.value ? { key: extra.value } : {};
@@ -694,7 +744,7 @@ document.addEventListener("keydown", (e) => {
         ...VIEWS.map(([id, key], i) => [el("dt", { text: String(i + 1) }), el("dd", { text: T(key) })]).flat(),
         el("dt", { text: "/" }), el("dd", { text: T("ui.filter.search") }),
       ),
-      el("p", { class: "note", style: "margin-top:12px", text: T("app.tagline") }),
+      el("p", { class: "note mt10", text: T("app.tagline") }),
       el("p", { class: "note", text: T("ui.help.body") }),
       el("button", { class: "act", type: "button", text: T("ui.action.close"), onclick: closeModal }));
   }

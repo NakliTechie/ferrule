@@ -173,5 +173,6 @@
   "ui.usage.col.cost": "Cost",
   "ui.usage.total": "Total",
   "ui.usage.loading": "Reading the ledger",
-  "ui.usage.emptyHint": "Point an app at Ferrule with an app token and its calls show up here, per app and per model."
+  "ui.usage.emptyHint": "Point an app at Ferrule with an app token and its calls show up here, per app and per model.",
+  "ui.source.modelCountOne": "1 model"
 }
