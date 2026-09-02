@@ -316,7 +316,11 @@ func cmdExport(args []string) error {
 	if len(args) > 0 {
 		path = args[0]
 	}
-	res, err := dispatch("export_config", api.Args{"path": path})
+	pass, err := promptSecret("Passphrase to seal this export (8+ characters): ")
+	if err != nil {
+		return err
+	}
+	res, err := dispatch("export_config", api.Args{"path": path, "passphrase": pass})
 	if err != nil {
 		return err
 	}
@@ -329,7 +333,11 @@ func cmdImport(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("%s", i18n.T("cli.needArg", "import <file>"))
 	}
-	res, err := dispatch("import_config", api.Args{"path": args[0]})
+	pass, err := promptSecret("Passphrase this file was sealed with: ")
+	if err != nil {
+		return err
+	}
+	res, err := dispatch("import_config", api.Args{"path": args[0], "passphrase": pass})
 	if err != nil {
 		return err
 	}

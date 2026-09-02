@@ -11,16 +11,26 @@ import (
 
 // API serves the control plane over HTTP for the embedded panel.
 type API struct {
-	app *app.App
-	bus *Bus
-	mcp *MCP
+	app   *app.App
+	bus   *Bus
+	mcp   *MCP
+	token *Token
 }
 
 // New builds the control-plane HTTP surface.
 func New(a *app.App) *API {
 	bus := NewBus(a)
-	return &API{app: a, bus: bus, mcp: NewMCP(bus)}
+	tok, err := NewToken()
+	if err != nil {
+		// Without a control token the control plane cannot be defended, so refusing to
+		// start is the only honest outcome.
+		panic("ferrule: cannot mint a control token: " + err.Error())
+	}
+	return &API{app: a, bus: bus, mcp: NewMCP(bus), token: tok}
 }
+
+// Token is the run's control-plane secret, for the panel the daemon serves itself.
+func (s *API) Token() *Token { return s.token }
 
 // Bus exposes the command bus (the CLI and the tests dispatch through it directly).
 func (s *API) Bus() *Bus { return s.bus }
@@ -37,6 +47,25 @@ func (s *API) handleOp(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/api/op/")
 	if name == "" {
 		http.Error(w, "name a control op", http.StatusNotFound)
+		return
+	}
+	op, known := s.bus.Op(name)
+	if !known {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no control op " + name})
+		return
+	}
+	// A mutation is never reachable by URL alone. This removes every attack that works
+	// by getting a browser to fetch a address — images, scripts, navigations.
+	if op.Mutating && r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
+			"error": name + " changes state and is POST-only"})
+		return
+	}
+	if !s.token.Valid(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "the control plane needs this run's control token in " + HeaderName +
+				"; only the panel this daemon served can have it"})
 		return
 	}
 	args := Args{}
@@ -63,7 +92,7 @@ func (s *API) handleOp(w http.ResponseWriter, r *http.Request) {
 	}
 	// The panel is the person's own door: mutations land directly. Staging exists for
 	// the agent door, where nobody is watching.
-	res, err := s.bus.Dispatch(r.Context(), name, args, DoorUI, callerOf(r))
+	res, err := s.bus.Dispatch(r.Context(), op.Name, args, DoorUI, callerOf(r))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
@@ -76,6 +105,11 @@ func (s *API) handleManifest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *API) handleStaged(w http.ResponseWriter, r *http.Request) {
+	if !s.token.Valid(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "the control plane needs this run's control token in " + HeaderName})
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/staged/")
 	id, action, _ := strings.Cut(rest, "/")
 	if id == "" {
@@ -85,6 +119,12 @@ func (s *API) handleStaged(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
+		return
+	}
+	if action != "" && r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
+			"error": "applying or discarding a staged operation is POST-only"})
 		return
 	}
 	switch action {

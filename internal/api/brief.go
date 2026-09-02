@@ -16,6 +16,8 @@ import (
 const (
 	briefFailures = 5
 	briefCalls    = 5
+	briefStaged   = 10
+	briefEgress   = 10
 )
 
 // brief is Ferrule's single perception act: one bounded read that renders the whole
@@ -112,19 +114,24 @@ func brief(ctx context.Context, a *app.App, endpoint string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The per-model egress breakdown grows with the number of distinct models used; the
+	// brief keeps only the head of it. `egress_summary` is the unbounded read.
+	if m, ok := egress.(map[string]any); ok {
+		if detail, ok := m["detail"].([]store.Bucket); ok && len(detail) > briefEgress {
+			m["detail"] = detail[:briefEgress]
+			m["detail_truncated"] = true
+		}
+	}
 
-	entries, err := a.DB.Entries(60)
+	// The failing rows are asked for directly. Scanning a fixed window of recent entries
+	// for them loses a failure the moment enough successes follow it — which is exactly
+	// when someone is looking for it.
+	failed, err := a.DB.Failures(briefFailures)
 	if err != nil {
 		return nil, err
 	}
-	failures := []map[string]any{}
-	for _, e := range entries {
-		if e.Err == "" && e.Status < 400 {
-			continue
-		}
-		if len(failures) == briefFailures {
-			break
-		}
+	failures := make([]map[string]any, 0, len(failed))
+	for _, e := range failed {
 		failures = append(failures, map[string]any{
 			"ts": e.TS, "app": e.App, "model": e.ModelID, "status": e.Status, "error": e.Err,
 		})
@@ -155,7 +162,12 @@ func brief(ctx context.Context, a *app.App, endpoint string) (any, error) {
 	}, nil
 }
 
+// stagedIDs renders at most briefStaged entries. A brief that grew with the staging
+// table would stop being a brief the first time an agent staged a thousand operations.
 func stagedIDs(ops []store.StagedOp) []map[string]any {
+	if len(ops) > briefStaged {
+		ops = ops[:briefStaged]
+	}
 	out := make([]map[string]any, 0, len(ops))
 	for _, o := range ops {
 		out = append(out, map[string]any{"id": o.ID, "op": o.Op, "door": o.Door, "caller": o.Caller})

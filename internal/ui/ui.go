@@ -4,8 +4,10 @@
 package ui
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
+	"html"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -17,8 +19,11 @@ import (
 //go:embed assets
 var assets embed.FS
 
-// Mount registers the panel and its assets.
-func Mount(mux *http.ServeMux) {
+// Mount registers the panel and its assets. controlToken is the per-run secret the
+// daemon hands the page it serves; a cross-origin caller cannot read this page, so it
+// cannot obtain the token, which is what keeps the control plane out of reach of a web
+// page the person happens to have open.
+func Mount(mux *http.ServeMux, controlToken string) {
 	sub, err := fs.Sub(assets, "assets")
 	if err != nil {
 		panic(err)
@@ -45,6 +50,10 @@ func Mount(mux *http.ServeMux) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Injected as a meta tag rather than an inline script, because the CSP has no
+		// unsafe-inline and should keep it that way.
+		raw = bytes.Replace(raw, []byte("<!--control-token-->"),
+			[]byte(`<meta name="ferrule-control" content="`+html.EscapeString(controlToken)+`">`), 1)
 		_, _ = w.Write(raw)
 	})
 }

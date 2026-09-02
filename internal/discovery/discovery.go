@@ -88,7 +88,15 @@ func New(db *store.DB, v vault.Vault, cat *catalog.Catalog) *Engine {
 		// they differ by an order of magnitude (a listing is seconds, a cold local model
 		// load is minutes). A client timeout would silently override the longer ones and
 		// then the reported budget would be a lie.
-		client: &http.Client{},
+		//
+		// Redirects are refused outright: every request this client makes carries a
+		// provider key, and following a redirect would hand that key to whatever host
+		// the response names. Go strips Authorization across hosts but not a custom
+		// header like Anthropic's x-api-key, so relying on that would be relying on the
+		// wrong guarantee.
+		client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
 	}
 }
 
@@ -99,6 +107,9 @@ type AddRequest struct {
 	BaseURL  string
 	Key      string
 	Detected bool
+	// AllowInsecure acknowledges that this source's key will travel over http to a host
+	// that is not this machine. It is never a default and it is recorded on the source.
+	AllowInsecure bool
 }
 
 // Result is what the pipeline produced, live or failed.
@@ -128,6 +139,9 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	if spec.NeedsKey && key == "" {
 		return Result{}, newReason(CodeNeedsKey, spec.Label)
 	}
+	if r := checkEndpoint(baseURL, key != ""); !r.OK() && !req.AllowInsecure {
+		return Result{}, r
+	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -148,6 +162,7 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	src := store.Source{
 		ID: id, Name: name, Provider: spec.ID, Kind: spec.Kind, Lane: spec.Lane,
 		BaseURL: baseURL, Status: store.StatusProbing, Detected: req.Detected,
+		Insecure: !checkEndpoint(baseURL, key != "").OK(),
 	}
 	if key != "" {
 		src.KeyRef = vault.Ref(id)
@@ -238,7 +253,7 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 				m.ContextLength = ent.Context
 			}
 			m.ClassifiedBy = i18n.T("classify.catalogHit")
-		} else if caps, ok := e.db.Learned(lm.ID); ok {
+		} else if caps, ok := e.db.Learned(src.Provider, lm.ID); ok {
 			// A probe already paid for this answer once (DRIVER §8).
 			m.Capabilities = caps
 			m.ClassifiedBy = i18n.T("classify.learned")
@@ -280,7 +295,7 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 			out[idx].ClassifiedBy = i18n.T("classify.liveProbe")
 			mu.Unlock()
 			// The ratchet: what this request cost is not spent again.
-			_ = e.db.Learn(id, caps)
+			_ = e.db.Learn(src.Provider, id, caps)
 		}(idx)
 	}
 	wg.Wait()
@@ -391,7 +406,12 @@ func (e *Engine) Remove(sourceID string) error {
 		return err
 	}
 	if src.KeyRef != "" {
-		_ = e.vault.Delete(src.KeyRef)
+		// If the key cannot be removed, the source row stays too. Deleting the row while
+		// the encrypted key survives would leave a secret on disk with nothing left in
+		// the interface that refers to it — unreachable, unlistable, and unremovable.
+		if err := e.vault.Delete(src.KeyRef); err != nil {
+			return err
+		}
 	}
 	return e.db.DeleteSource(sourceID)
 }

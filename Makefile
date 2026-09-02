@@ -17,8 +17,11 @@ fmt:
 vet:
 	go vet ./...
 
+# A skipped checkpoint is not a passed checkpoint. `go test` exits 0 on a skip and says
+# so only in verbose output, so the gate reads the verbose output and refuses any skip.
+# A machine that cannot run a gate must say so loudly, not quietly accept the package.
 test:
-	go test ./...
+	@set -o pipefail; go test ./... -v 2>&1 | tee /tmp/ferrule-test.out | grep -E "^(ok|FAIL|---)" || true; 	  if grep -q "^--- SKIP" /tmp/ferrule-test.out; then 	    echo; echo "a checkpoint was skipped, which the gate does not accept:"; 	    grep -A2 "^--- SKIP" /tmp/ferrule-test.out; exit 1; 	  fi; 	  if grep -q "^--- FAIL\|^FAIL" /tmp/ferrule-test.out; then exit 1; fi
 
 run: build
 	./$(BINARY) serve

@@ -22,8 +22,12 @@ func cmdAdd(args []string) error {
 	fs := flag.NewFlagSet("add", flag.ContinueOnError)
 	name := fs.String("name", "", "name for this source (defaults to the provider id)")
 	base := fs.String("base-url", "", "base URL, for an unknown OpenAI-compatible endpoint")
-	key := fs.String("key", "", "API key; omit to be prompted, which keeps it out of your shell history and the process table")
+	// There is deliberately no --key flag. A key on the command line is a key in your
+	// shell history and in the process table, where any other process running as you can
+	// read it. The key is read from the terminal without echo, or from stdin when this
+	// is piped — which is how a password manager hands one over.
 	detect := fs.Bool("detect", false, "scan localhost for running runtimes and adopt them")
+	insecure := fs.Bool("insecure", false, "acknowledge that this key will travel over http to a host that is not this machine")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -69,17 +73,19 @@ func cmdAdd(args []string) error {
 	pid := fs.Arg(0)
 	spec, ok := provider.Get(pid)
 	if !ok {
-		return fmt.Errorf("%s", i18n.T("source.unknownProvider", pid, provider.Names()))
+		// Returned as a typed Reason, not a formatted string: the exit code is derived
+		// from the code, and flattening it here is what made an invocation fault exit 1
+		// while the contract said 2.
+		return discovery.UnknownProvider(pid)
 	}
-	k := *key
-	if spec.NeedsKey && k == "" {
-		k, err = promptSecret(fmt.Sprintf("%s key (%s): ", spec.Label, spec.KeyHint))
-		if err != nil {
+	k := ""
+	if spec.NeedsKey {
+		if k, err = promptSecret(fmt.Sprintf("%s key (%s): ", spec.Label, spec.KeyHint)); err != nil {
 			return err
 		}
 	}
 	r, err := a.Discovery.Add(ctx, discovery.AddRequest{
-		Name: *name, Provider: pid, BaseURL: *base, Key: k,
+		Name: *name, Provider: pid, BaseURL: *base, Key: k, AllowInsecure: *insecure,
 	})
 	if err != nil {
 		return err

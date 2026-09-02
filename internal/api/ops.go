@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ferrule/internal/app"
+	"ferrule/internal/catalog"
 	"ferrule/internal/discovery"
 	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
@@ -41,9 +42,12 @@ func (b *Bus) register() {
 				"scanning":     a.Discovery.Scanning(),
 				"catalog_date": a.Catalog.Date(), "catalog_stale": a.Catalog.Stale(),
 				"sources": len(srcs), "sources_live": live, "models": len(models),
-				"platform":        runtime.GOOS + "/" + runtime.GOARCH,
-				"content_logging": a.DB.Setting(store.SetContentLogging, "off"),
-				"sovereignty":     i18n.T("app.sovereignty"),
+				"platform":           runtime.GOOS + "/" + runtime.GOARCH,
+				"content_logging":    a.DB.Setting(store.SetContentLogging, "off"),
+				"catalog_refresh":    a.DB.Setting(store.SetCatalogRefresh, "on"),
+				"catalog_source":     catalog.RemoteURL,
+				"catalog_disclosure": i18n.T("catalog.disclosure", catalog.RemoteURL),
+				"sovereignty":        i18n.T("app.sovereignty"),
 			}, nil
 		}})
 
@@ -209,11 +213,13 @@ func (b *Bus) register() {
 			{Name: "name", Type: "string", Desc: "a name for this source; defaults to the provider id"},
 			{Name: "base_url", Type: "string", Desc: "required for an unknown OpenAI-compatible endpoint"},
 			{Name: "key", Type: "string", Secret: true, Desc: "the provider key; withheld from staging and supplied by the person at apply time"},
+			{Name: "allow_insecure", Type: "boolean", Desc: "acknowledge that this key will travel over http to a host that is not this machine"},
 		},
 		run: func(ctx context.Context, a *app.App, args Args) (any, error) {
 			r, err := a.Discovery.Add(ctx, discovery.AddRequest{
 				Name: args.Str("name"), Provider: args.Str("provider"),
 				BaseURL: args.Str("base_url"), Key: args.Str("key"),
+				AllowInsecure: args.Bool("allow_insecure"),
 			})
 			if err != nil {
 				return nil, err
@@ -242,6 +248,14 @@ func (b *Bus) register() {
 			}
 			return map[string]any{"removed": args.Str("id"),
 				"message": i18n.T("source.removed", args.Str("id"))}, nil
+		}})
+
+	b.add(&Op{Name: "catalog_refresh", Desc: i18n.T("op.catalog_refresh"), Mutating: true,
+		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
+			if err := a.Catalog.Refresh(); err != nil {
+				return nil, err
+			}
+			return map[string]any{"date": a.Catalog.Date(), "source": catalog.RemoteURL}, nil
 		}})
 
 	b.add(&Op{Name: "detect_local", Desc: i18n.T("op.detect_local"), Mutating: true,
@@ -342,7 +356,7 @@ func (b *Bus) register() {
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
 			k, v := args.Str("key"), args.Str("value")
 			switch k {
-			case store.SetContentLogging, store.SetCrossOrigin:
+			case store.SetContentLogging, store.SetCrossOrigin, store.SetCatalogRefresh:
 			default:
 				return nil, fmt.Errorf("unknown setting %q", k)
 			}
@@ -393,15 +407,23 @@ func (b *Bus) register() {
 		}})
 
 	b.add(&Op{Name: "export_config", Desc: i18n.T("op.export_config"), Mutating: true, PersonOnly: true,
-		Params: []Param{{Name: "path", Type: "string", Required: true, Desc: "where to write the portable file"}},
+		Params: []Param{
+			{Name: "path", Type: "string", Required: true, Desc: "where to write the portable file"},
+			{Name: "passphrase", Type: "string", Required: true, Secret: true,
+				Desc: "seals the keys inside the file, so the file alone is the whole configuration"},
+		},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
-			return exportConfig(a, args.Str("path"))
+			return exportConfig(a, args.Str("path"), args.Str("passphrase"))
 		}})
 
 	b.add(&Op{Name: "import_config", Desc: i18n.T("op.import_config"), Mutating: true, PersonOnly: true,
-		Params: []Param{{Name: "path", Type: "string", Required: true, Desc: "the portable file to read"}},
+		Params: []Param{
+			{Name: "path", Type: "string", Required: true, Desc: "the portable file to read"},
+			{Name: "passphrase", Type: "string", Required: true, Secret: true,
+				Desc: "the passphrase the file was sealed with"},
+		},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
-			return importConfig(a, args.Str("path"))
+			return importConfig(a, args.Str("path"), args.Str("passphrase"))
 		}})
 }
 
@@ -445,20 +467,27 @@ func decorate(a *app.App, as []store.Alias) []map[string]any {
 // ---- portable configuration (§4.2 closure) ----
 
 type portable struct {
-	Format    string                `json:"format"`
-	Version   int                   `json:"version"`
-	Written   string                `json:"written"`
-	Sources   []store.Source        `json:"sources"`
-	Models    []store.Model         `json:"models"`
-	Aliases   []store.Alias         `json:"aliases"`
-	Remaps    []store.Remap         `json:"remaps"`
-	Grants    []store.PortableGrant `json:"grants"`
-	VaultBlob []byte                `json:"vault_blob"`
+	Format  string                `json:"format"`
+	Version int                   `json:"version"`
+	Written string                `json:"written"`
+	Sources []store.Source        `json:"sources"`
+	Models  []store.Model         `json:"models"`
+	Aliases []store.Alias         `json:"aliases"`
+	Remaps  []store.Remap         `json:"remaps"`
+	Grants  []store.PortableGrant `json:"grants"`
+	// Keys is the key store re-sealed under a passphrase the person chose, so this file
+	// is genuinely the whole configuration. Sealing it under the local identity instead
+	// would mean the file was portable only when carried next to that identity — which
+	// is two files, not one, and is not what closure means.
+	Keys []byte `json:"keys"`
 }
 
-func exportConfig(a *app.App, path string) (any, error) {
+func exportConfig(a *app.App, path, passphrase string) (any, error) {
 	if path == "" {
 		path = filepath.Join(a.Dir, "ferrule-config.json")
+	}
+	if len(passphrase) < 8 {
+		return nil, errors.New(i18n.T("export.needPassphrase"))
 	}
 	srcs, err := a.DB.Sources()
 	if err != nil {
@@ -480,29 +509,32 @@ func exportConfig(a *app.App, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	blob, err := a.Vault.Blob()
+	keys, err := a.Vault.Seal(passphrase)
 	if err != nil {
 		return nil, err
 	}
 	p := portable{
 		Format: "ferrule-config", Version: 1, Written: time.Now().Format(time.RFC3339),
 		Sources: srcs, Models: models, Aliases: aliases, Remaps: remaps, Grants: grants,
-		VaultBlob: blob,
+		Keys: keys,
 	}
 	raw, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	// 0600: the file carries the encrypted key blob, and the identity that opens it may
-	// well be sitting next to it on the same machine.
+	// 0600 on the file itself, and set explicitly afterwards: writing over a file that
+	// already exists keeps the mode it already had, which may be anything.
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, err
 	}
 	return map[string]any{"path": path, "bytes": len(raw), "sources": len(srcs),
 		"aliases": len(aliases), "grants": len(grants)}, nil
 }
 
-func importConfig(a *app.App, path string) (any, error) {
+func importConfig(a *app.App, path, passphrase string) (any, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -514,8 +546,8 @@ func importConfig(a *app.App, path string) (any, error) {
 	if p.Format != "ferrule-config" {
 		return nil, fmt.Errorf("%s is not a Ferrule configuration file", path)
 	}
-	if len(p.VaultBlob) > 0 {
-		if err := a.Vault.SetBlob(p.VaultBlob); err != nil {
+	if len(p.Keys) > 0 {
+		if err := a.Vault.Unseal(p.Keys, passphrase); err != nil {
 			return nil, err
 		}
 	}

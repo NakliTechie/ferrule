@@ -15,6 +15,7 @@ import (
 	"ferrule/internal/app"
 	"ferrule/internal/passthrough"
 	"ferrule/internal/router"
+	"ferrule/internal/store"
 	"ferrule/internal/ui"
 )
 
@@ -45,10 +46,11 @@ func New(a *app.App, o Options) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
+	control := api.New(a)
 	router.New(a.DB, a.Vault, a.Catalog).Mount(mux)
 	passthrough.New(a.DB, a.Vault).Mount(mux)
-	api.New(a).Mount(mux)
-	ui.Mount(mux)
+	control.Mount(mux)
+	ui.Mount(mux, control.Token().Value())
 
 	return &Server{
 		app: a,
@@ -91,8 +93,8 @@ func guardOrigin(a *app.App, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if isLocalOrigin(origin) || a.DB.Setting("cross_origin", "off") == "on" {
-			if a.DB.Setting("cross_origin", "off") == "on" {
+		if api.LocalOrigin(origin) || a.DB.Setting(store.SetCrossOrigin, "off") == "on" {
+			if a.DB.Setting(store.SetCrossOrigin, "off") == "on" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.Header().Set("Vary", "Origin")
@@ -107,14 +109,4 @@ func guardOrigin(a *app.App, next http.Handler) http.Handler {
 		http.Error(w, "cross-origin control requests are off by default — turn on the "+
 			"developer setting if you meant this", http.StatusForbidden)
 	})
-}
-
-func isLocalOrigin(origin string) bool {
-	o := strings.ToLower(origin)
-	for _, p := range []string{"http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1", "http://[::1]"} {
-		if strings.HasPrefix(o, p) {
-			return true
-		}
-	}
-	return false
 }

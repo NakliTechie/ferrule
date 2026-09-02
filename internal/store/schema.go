@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS sources (
   status_reason  TEXT NOT NULL DEFAULT '',   -- the message, for a person
   status_remedy  TEXT NOT NULL DEFAULT '',   -- the exact next move
   detected       INTEGER NOT NULL DEFAULT 0,
+  insecure       INTEGER NOT NULL DEFAULT 0,   -- key travels over http, acknowledged
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
@@ -90,10 +91,14 @@ CREATE INDEX IF NOT EXISTS ledger_mdl  ON ledger(source_id, model_id);
 
 -- What a live probe cost money to learn is kept, so it is never learned twice. The
 -- catalog is the authority; this is only for ids the catalog is silent on.
+-- Keyed by provider as well as id: two providers can serve different things under the
+-- same name, and inheriting one's answer for the other is worse than probing again.
 CREATE TABLE IF NOT EXISTS learned (
-  model_id     TEXT PRIMARY KEY,
+  provider     TEXT NOT NULL,
+  model_id     TEXT NOT NULL,
   capabilities TEXT NOT NULL DEFAULT '[]',
-  learned_at   INTEGER NOT NULL
+  learned_at   INTEGER NOT NULL,
+  PRIMARY KEY (provider, model_id)
 );
 
 CREATE TABLE IF NOT EXISTS settings (

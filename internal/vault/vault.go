@@ -1,12 +1,35 @@
 // Package vault is the encrypted home for provider keys.
 //
-// Threat model, stated plainly (§4.5): the vault protects keys at rest from anything
-// that reads the disk — backups, sync clients, other user accounts, a stolen laptop with
-// FileVault off, and the casual `grep -r sk- ~` that finds keys in a dozen .env files.
-// It does not protect against code already running as this user with the vault unlocked;
-// no local single-user secret store can, because the daemon must be able to read the key
-// to make the request. Passphrase mode narrows that window: no unlock material touches
-// the disk at all.
+// # Threat model, stated exactly
+//
+// There are two modes, and they defend against different things. Saying so precisely
+// matters more here than anywhere else in the product, because a vault that is trusted
+// past what it actually does is worse than a .env file that nobody trusts at all.
+//
+// Identity mode (the default, and what lets the daemon start unattended) writes an age
+// identity to vault.identity at 0600 beside the encrypted store. It defends against:
+//
+//   - another user account on the machine (0600),
+//   - `grep -r sk- ~`, an editor's project-wide search, a screen share, a pasted diff —
+//     the everyday leaks that put keys in a dozen .env files in the first place,
+//   - a process that reads the store without the identity beside it.
+//
+// It does NOT defend against anyone who copies the whole config directory. A backup, a
+// cloud-drive sync, or a thief with an unencrypted disk gets both files, and two files
+// is one decryption. If that is your threat, identity mode is not enough, and Ferrule
+// says so here rather than letting the word "encrypted" imply otherwise.
+//
+// Passphrase mode (serve --passphrase, or FERRULE_PASSPHRASE) writes nothing that can
+// open the store. A copy of the config directory is then genuinely useless without the
+// passphrase, and the cost is that the daemon cannot start unattended.
+//
+// Neither mode defends against code already running as this user against a live daemon.
+// No local single-user secret store can: the daemon has to be able to read the key in
+// order to make the request. What Ferrule offers there is the ledger — every use of
+// every key is recorded, so a key used behind your back is a key you can see was used.
+//
+// A configuration export is a third case and is sealed under its own passphrase, so the
+// file that leaves this machine is not protected by anything left on it.
 package vault
 
 import (
@@ -20,6 +43,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"filippo.io/age"
 
@@ -37,15 +62,18 @@ type Vault interface {
 	Get(ref string) (string, error)
 	Delete(ref string) error
 	Refs() ([]string, error)
-	// Blob returns the encrypted store bytes for portable export (§4.2 closure).
-	Blob() ([]byte, error)
-	// SetBlob replaces the store from an exported blob, merging refs.
-	SetBlob(b []byte) error
+	// Seal returns the key store re-encrypted under a passphrase, for a portable export
+	// that is genuinely one file (§4.2 closure). Sealing under the local identity would
+	// produce a file that only opens next to that identity — two artefacts, not one.
+	Seal(passphrase string) ([]byte, error)
+	// Unseal merges a sealed export into this store.
+	Unseal(b []byte, passphrase string) error
 }
 
 type ageVault struct {
 	mu       sync.RWMutex
 	path     string
+	lockPath string
 	ident    age.Identity
 	recip    age.Recipient
 	scrypted bool
@@ -58,8 +86,9 @@ type ageVault struct {
 // file is created at 0600 alongside the store.
 func Open(dir, passphrase string) (Vault, error) {
 	v := &ageVault{
-		path:  filepath.Join(dir, "vault.age"),
-		cache: map[string]string{},
+		path:     filepath.Join(dir, "vault.age"),
+		lockPath: filepath.Join(dir, "vault.lock"),
+		cache:    map[string]string{},
 	}
 	if passphrase != "" {
 		r, err := age.NewScryptRecipient(passphrase)
@@ -185,15 +214,85 @@ func (v *ageVault) Put(ref, secret string) error {
 	if strings.TrimSpace(secret) == "" {
 		return errors.New(i18n.T("vault.plaintextRefused"))
 	}
+	return v.mutate(func(m map[string]string) { m[ref] = secret })
+}
+
+// mutate applies a change under an exclusive cross-process lock, re-reading the store
+// first so the write is against what is on disk right now.
+//
+// A process-local mutex is not enough here. The daemon and the CLI are separate
+// processes against one file, and each held its whole store in memory from startup: the
+// daemon loads {A}, the CLI adds B and writes {A,B}, then the daemon adds C and writes
+// {A,C} from its stale cache — and B is gone, silently, along with whatever provider
+// account it was for.
+func (v *ageVault) mutate(apply func(map[string]string)) error {
+	unlock, err := v.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.cache[ref] = secret
+	if err := v.reload(); err != nil {
+		return err
+	}
+	apply(v.cache)
 	return v.flush()
 }
 
+// reload re-reads the store from disk. Callers hold both the file lock and the mutex.
+func (v *ageVault) reload() error {
+	raw, err := os.ReadFile(v.path)
+	if os.IsNotExist(err) {
+		if v.cache == nil {
+			v.cache = map[string]string{}
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	m, err := v.decrypt(raw)
+	if err != nil {
+		return err
+	}
+	v.cache = m
+	return nil
+}
+
+// lock takes an exclusive advisory lock on the vault, waiting briefly for another
+// process to finish. The returned function releases it.
+func (v *ageVault) lock() (func(), error) {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		f, err := os.OpenFile(v.lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			return func() {
+				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = f.Close()
+			}, nil
+		}
+		_ = f.Close()
+		if time.Now().After(deadline) {
+			return nil, errors.New(i18n.T("vault.busy"))
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 func (v *ageVault) Get(ref string) (string, error) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	// Re-read before answering: another process may have added or rotated this key since
+	// this one started, and handing back a key that is no longer the stored one is how a
+	// rotation appears to have silently failed.
+	if err := v.reload(); err != nil {
+		return "", err
+	}
 	s, ok := v.cache[ref]
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrNotFound, i18n.T("vault.noKey", ref))
@@ -202,10 +301,7 @@ func (v *ageVault) Get(ref string) (string, error) {
 }
 
 func (v *ageVault) Delete(ref string) error {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	delete(v.cache, ref)
-	return v.flush()
+	return v.mutate(func(m map[string]string) { delete(m, ref) })
 }
 
 func (v *ageVault) Refs() ([]string, error) {
@@ -219,30 +315,66 @@ func (v *ageVault) Refs() ([]string, error) {
 	return out, nil
 }
 
-func (v *ageVault) Blob() ([]byte, error) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	raw, err := os.ReadFile(v.path)
-	if os.IsNotExist(err) {
-		return []byte{}, nil
+func (v *ageVault) Seal(passphrase string) ([]byte, error) {
+	if len(passphrase) < 8 {
+		return nil, errors.New(i18n.T("export.needPassphrase"))
 	}
-	return raw, err
+	v.mu.Lock()
+	if err := v.reload(); err != nil {
+		v.mu.Unlock()
+		return nil, err
+	}
+	plain, err := json.Marshal(v.cache)
+	v.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	r, err := age.NewScryptRecipient(passphrase)
+	if err != nil {
+		return nil, err
+	}
+	// Higher than the daemon's own unlock factor: this file may sit in a backup or a
+	// cloud drive for years, where an offline attacker has all the time they want.
+	r.SetWorkFactor(20)
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, r)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(plain); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
-func (v *ageVault) SetBlob(b []byte) error {
+func (v *ageVault) Unseal(b []byte, passphrase string) error {
 	if len(bytes.TrimSpace(b)) == 0 {
 		return nil
 	}
-	m, err := v.decrypt(b)
+	id, err := age.NewScryptIdentity(passphrase)
 	if err != nil {
 		return err
 	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	for k, val := range m {
-		v.cache[k] = val
+	rd, err := age.Decrypt(bytes.NewReader(b), id)
+	if err != nil {
+		return fmt.Errorf("%s: %w", i18n.T("vault.badPassphrase"), err)
 	}
-	return v.flush()
+	plain, err := io.ReadAll(rd)
+	if err != nil {
+		return err
+	}
+	m := map[string]string{}
+	if err := json.Unmarshal(plain, &m); err != nil {
+		return err
+	}
+	return v.mutate(func(cache map[string]string) {
+		for k, val := range m {
+			cache[k] = val
+		}
+	})
 }
 
 // Ref builds the vault ref for a source id. Refs are opaque handles; only the ref ever

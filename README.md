@@ -9,7 +9,9 @@ lives. The unified OpenAI-compatible endpoint, the model board, the alias ladder
 the spend and egress views all fall out of the vault.
 
 One statically-linked Go binary. No account, no telemetry, no server database, and
-nothing of ours in the loop.
+nothing of ours in the loop. Ferrule makes exactly one request on its own behalf — a
+background fetch of the public model-capability catalog, carrying nothing about you,
+which you can turn off.
 
 *A ferrule is the fitting that binds many strands into a single clean termination.*
 
@@ -103,12 +105,24 @@ encrypted, is not the same as persisted on someone's server. Nothing phones home
 is no account, and a key only ever travels from your disk to the provider you gave it
 for.
 
-Two ways to hold the vault open:
+Two ways to hold the vault open, and they defend against different things:
 
-- **Identity file** (default) — `vault.identity`, mode 0600, next to the store. The
-  daemon starts unattended.
-- **Passphrase** — `ferrule serve --passphrase`, or `FERRULE_PASSPHRASE`. Nothing that
-  can open the vault is written to disk at all.
+- **Identity file** (default) — `vault.identity`, mode 0600, beside the store. The daemon
+  starts unattended. This stops another account on the machine, and it stops the everyday
+  leaks that put keys in a dozen `.env` files: a project-wide search, a screen share, a
+  pasted diff. It does **not** stop anyone who copies the whole config directory — a
+  backup or a cloud-drive sync takes both files, and two files is one decryption.
+- **Passphrase** — `ferrule serve --passphrase`, or `FERRULE_PASSPHRASE`. Nothing that can
+  open the vault is written to disk at all, so a copy of the directory is useless without
+  you. The cost is that the daemon cannot start unattended.
+
+Neither stops code already running as you against a live daemon; no local single-user
+secret store can, because the daemon has to read the key to make the request. What
+Ferrule offers there is the ledger: every use of every key is recorded, so a key used
+behind your back is a key you can see was used.
+
+An exported configuration is sealed under its own passphrase, so the file that leaves
+this machine is not protected by anything left on it.
 
 The daemon binds to localhost only. The control plane refuses cross-origin requests
 unless you turn on the developer setting; the inference endpoints authenticate with an

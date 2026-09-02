@@ -6,8 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"io"
+	"regexp"
+
+	"ferrule/internal/api"
 	"ferrule/internal/app"
 	"ferrule/internal/mock"
 	"ferrule/internal/server"
@@ -105,8 +111,8 @@ func TestCheckpointMCPControlFace(t *testing.T) {
 	}
 
 	// The person applies it, and only then does it land.
-	applyResp, err := http.Post(r.srv.URL+"/api/staged/"+stagedID+"/apply",
-		"application/json", strings.NewReader("{}"))
+	applyResp, err := http.DefaultClient.Do(
+		r.controlReq(t, http.MethodPost, "/api/staged/"+stagedID+"/apply", "{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,32 +268,73 @@ func TestControlPlaneRejectsForeignOrigins(t *testing.T) {
 	go srv.Serve(ctx)
 	base := "http://" + srv.Addr()
 
-	get := func(path, origin string) int {
-		req, _ := http.NewRequest(http.MethodGet, base+path, nil)
+	// The token the panel would have been handed. A cross-origin caller cannot read the
+	// page it is embedded in, so it cannot have this.
+	page, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	m := regexp.MustCompile(`name="ferrule-control" content="([^"]+)"`).FindSubmatch(body)
+	if m == nil {
+		t.Fatal("the panel was served without a control token")
+	}
+	control := string(m[1])
+
+	call := func(method, path, origin, token string) int {
+		req, _ := http.NewRequest(method, base+path, strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
 		if origin != "" {
 			req.Header.Set("Origin", origin)
 		}
+		if token != "" {
+			req.Header.Set(api.HeaderName, token)
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			t.Fatalf("%s: %v", path, err)
+			t.Fatalf("%s %s: %v", method, path, err)
 		}
 		resp.Body.Close()
 		return resp.StatusCode
 	}
 
-	if code := get("/api/op/status", "https://evil.example"); code != http.StatusForbidden {
-		t.Errorf("a foreign origin got HTTP %d on the control plane, want 403", code)
+	// The attack that worked before this test existed: a browser fetches a URL with no
+	// Origin header — an <img> tag, a <script> src, a navigation — and the daemon
+	// executes a mutation. Both halves are now closed.
+	if code := call(http.MethodGet, "/api/op/set_setting?key=cross_origin&value=on", "", ""); code != http.StatusMethodNotAllowed {
+		t.Errorf("a URL-only mutation got HTTP %d, want 405", code)
 	}
-	if code := get("/api/op/status", "http://127.0.0.1:8899"); code != http.StatusOK {
-		t.Errorf("the panel's own origin got HTTP %d, want 200", code)
+	if code := call(http.MethodPost, "/api/op/set_setting", "", ""); code != http.StatusForbidden {
+		t.Errorf("a POST mutation without the control token got HTTP %d, want 403", code)
 	}
-	if code := get("/api/op/status", ""); code != http.StatusOK {
-		t.Errorf("a request with no Origin got HTTP %d, want 200", code)
+	if code := call(http.MethodPost, "/api/op/mint_grant", "https://evil.example", ""); code != http.StatusForbidden {
+		t.Errorf("a foreign origin minted a credential: HTTP %d, want 403", code)
 	}
-	// The inference lane is exempt by design: SDKs send no Origin and authenticate with
-	// an app token. It must still refuse an unauthenticated caller.
-	if code := get("/v1/models", "https://evil.example"); code != http.StatusUnauthorized {
+	// A hostname that merely starts with "localhost" is not this machine.
+	if code := call(http.MethodPost, "/api/op/status", "http://localhost.evil.example", ""); code != http.StatusForbidden {
+		t.Errorf("localhost.evil.example got HTTP %d, want 403", code)
+	}
+	// Reads are guarded too: without the token, nothing on the control plane answers.
+	if code := call(http.MethodPost, "/api/op/list_sources", "", ""); code != http.StatusForbidden {
+		t.Errorf("an untokened read got HTTP %d, want 403", code)
+	}
+	// And the panel, which has the token, works.
+	if code := call(http.MethodPost, "/api/op/status", "http://127.0.0.1:8899", control); code != http.StatusOK {
+		t.Errorf("the panel got HTTP %d, want 200", code)
+	}
+	// The inference lane is exempt by design — SDKs send no Origin and authenticate with
+	// an app token — but it must still refuse an unauthenticated caller.
+	if code := call(http.MethodGet, "/v1/models", "https://evil.example", ""); code != http.StatusUnauthorized {
 		t.Errorf("the inference lane got HTTP %d for an unauthenticated call, want 401", code)
+	}
+	// No grant was created by any of the above.
+	grants, err := a.DB.Grants()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grants) != 0 {
+		t.Fatalf("%d grant(s) exist after the attack sequence", len(grants))
 	}
 }
 
@@ -315,4 +362,74 @@ func panelOps(t *testing.T) []string {
 		t.Fatalf("only %d dispatched ops found in the panel; the extractor is broken", len(out))
 	}
 	return out
+}
+
+// A key must not reach the staging table by any route, including ones the op did not
+// declare. An agent that passes it as `api_key`, or hides it in a base URL's query
+// string, must not have Ferrule write it to SQLite in plaintext.
+func TestStagingRefusesCredentialsByAnyRoute(t *testing.T) {
+	r := newRig(t)
+	const canary = "sk-agent-supplied-secret-canary"
+
+	res := structured(t, r.mcpCall(t, "tools/call", map[string]any{
+		"name": "add_source",
+		"arguments": map[string]any{
+			"provider": "deepseek",
+			"name":     "deepseek",
+			"key":      canary,                                      // declared secret
+			"api_key":  canary,                                      // undeclared
+			"base_url": "https://api.deepseek.com/v1?key=" + canary, // hidden in a URL
+		},
+	}))
+	if res["staged"] != true {
+		t.Fatalf("add_source did not stage: %v", res)
+	}
+	ops, err := r.app.DB.StagedOps()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) == 0 {
+		t.Fatal("nothing was staged")
+	}
+	for _, o := range ops {
+		if strings.Contains(o.Payload, canary) {
+			t.Fatalf("the staged payload carries the key: %s", o.Payload)
+		}
+	}
+	if len(res["dropped_undeclared"].([]any)) == 0 {
+		t.Error("the undeclared argument was neither staged nor reported as dropped")
+	}
+}
+
+// Two applies racing on one staged operation must not both run it.
+func TestStagedOpAppliesExactlyOnce(t *testing.T) {
+	r := newRig(t)
+	staged, err := r.app.DB.Stage("mint_grant", `{"app":"racer"}`, "mcp", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// mint_grant is person-only, so stage it directly and apply through the person's
+	// door — which is the path a real apply takes.
+	var wins int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := r.bus.Apply(context.Background(), staged.ID, nil, api.DoorUI, "test"); err == nil {
+				atomic.AddInt32(&wins, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Fatalf("%d of 8 concurrent applies succeeded, want exactly 1", wins)
+	}
+	grants, err := r.app.DB.Grants()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grants) != 1 {
+		t.Fatalf("%d grants minted from one staged operation", len(grants))
+	}
 }

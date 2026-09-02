@@ -10,9 +10,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"ferrule/internal/catalog"
@@ -36,7 +39,16 @@ func New(db *store.DB, v vault.Vault, cat *catalog.Catalog) *Router {
 		db: db, vault: v, cat: cat,
 		// No overall timeout: a long generation is a legitimate request. Per-attempt
 		// deadlines come from the caller's context.
-		client: &http.Client{Timeout: 0},
+		//
+		// Redirects are refused: every request carries a provider key, and a 3xx would
+		// hand it to whatever host the response names. Go strips Authorization across
+		// hosts but not a custom header like Anthropic's x-api-key.
+		client: &http.Client{
+			Timeout: 0,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -144,7 +156,7 @@ func (r *Router) forward(w http.ResponseWriter, req *http.Request, g store.Grant
 	requested, _ := envelope["model"].(string)
 	targets, err := r.Resolve(requested)
 	if err != nil {
-		_ = r.db.Record(store.Entry{
+		_, _ = r.db.Record(store.Entry{
 			GrantID: g.ID, App: g.App, RequestedModel: requested,
 			Status: http.StatusNotFound, Err: err.Error(), ReqBytes: len(body),
 		})
@@ -218,6 +230,18 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		Egress: egress, ReqBytes: len(upstreamBody),
 	}
 
+	// The dialer reports the address actually connected to, which is the honest answer to
+	// "did this leave the machine". The pre-flight guess above can be wrong: a name can
+	// resolve differently between the check and the dial.
+	var dialed atomic.Value
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn != nil {
+				dialed.Store(Peer(info.Conn.RemoteAddr()))
+			}
+		},
+	})
+
 	start := time.Now()
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		provider.URL(t.Source.BaseURL, path), bytes.NewReader(upstreamBody))
@@ -231,20 +255,33 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	spec.Authorize(upReq, key)
 
 	resp, err := r.client.Do(upReq)
+	if actual, ok := dialed.Load().(string); ok && actual != "" {
+		entry.Egress = actual
+	}
 	if err != nil {
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", t.Source.Name, err.Error())
-		_ = r.db.Record(entry)
+		_, _ = r.db.Record(entry)
 		return outcome{retryable: true, status: http.StatusBadGateway, err: entry.Err}
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// A refused redirect. Serving it would mean the caller re-issues the request
+		// without Ferrule's key handling; recording it as success would be a lie.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		entry.LatencyMS = int(time.Since(start).Milliseconds())
+		entry.Status, entry.RespBytes = http.StatusBadGateway, len(raw)
+		entry.Err = i18n.T("route.redirectRefused", t.Source.Name, resp.Header.Get("Location"))
+		_, _ = r.db.Record(entry)
+		return outcome{retryable: true, status: http.StatusBadGateway, err: entry.Err}
+	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.RespBytes = resp.StatusCode, len(raw)
-		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, strings.TrimSpace(string(raw)))
-		_ = r.db.Record(entry)
+		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, redact(string(raw)))
+		_, _ = r.db.Record(entry)
 		// 5xx and 429 are the upstream's problem; the next rung may well answer.
 		retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
 		return outcome{retryable: retry, status: resp.StatusCode, err: entry.Err}
@@ -259,12 +296,29 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	var served []byte
 	logContent := r.db.ContentLoggingOn()
 	if stream {
-		n, usage, served = pipeStream(w, resp.Body, logContent)
+		var streamErr error
+		n, usage, served, streamErr = pipeStream(w, resp.Body, logContent)
+		if streamErr != nil {
+			// The response was already being served, so this is a truncated stream, not
+			// a reason to try another rung — but it is not a clean success either, and
+			// the ledger says so rather than recording a silent 200.
+			entry.Err = i18n.T("route.truncated", redact(streamErr.Error()))
+		}
 	} else {
-		raw, _ := io.ReadAll(resp.Body)
+		// Bounded: an upstream that never stops writing must not be able to exhaust this
+		// process's memory. maxBody is far above any real completion.
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 		n = len(raw)
 		usage = parseUsage(raw)
-		_, _ = w.Write(raw)
+		if _, err := w.Write(raw); err != nil {
+			readErr = err
+		}
+		if int64(n) == maxBody {
+			readErr = errTruncated
+		}
+		if readErr != nil {
+			entry.Err = i18n.T("route.truncated", redact(readErr.Error()))
+		}
 		if logContent {
 			served = raw
 		}
@@ -274,10 +328,10 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	entry.Status, entry.RespBytes = resp.StatusCode, n
 	entry.PromptTokens, entry.CompletionTokens = usage.Prompt, usage.Completion
 	entry.Cost = Cost(t.Model, usage.Prompt, usage.Completion)
-	_ = r.db.Record(entry)
+	id, _ := r.db.Record(entry)
 	if logContent {
-		// Off by default, local only, and stored apart from the ledger (§4.5).
-		id, _ := r.db.LastLedgerID()
+		// Off by default, local only, and stored apart from the ledger (§4.5). The id
+		// comes from the insert itself, so a concurrent request cannot claim this row.
 		_ = r.db.RecordContent(store.Content{
 			LedgerID: id, App: g.App, Model: t.Model.ModelID,
 			Request: string(upstreamBody), Response: string(served),
@@ -285,6 +339,13 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	}
 	return outcome{served: true}
 }
+
+// maxBody bounds a non-streaming upstream response. Generous enough for any real
+// completion, finite enough that a runaway provider cannot exhaust memory.
+const maxBody = 64 << 20
+
+// errTruncated marks a response that hit maxBody.
+var errTruncated = errors.New("upstream response exceeded the size Ferrule will buffer")
 
 // Cost prices a call from the model's catalog-sourced per-million-token rates.
 func Cost(m store.Model, prompt, completion int) float64 {
@@ -308,7 +369,7 @@ func parseUsage(raw []byte) usageCounts {
 
 // pipeStream relays SSE to the client as it arrives and picks the usage block out of the
 // stream on the way past. Relaying is never delayed to read the counts.
-func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCounts, []byte) {
+func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCounts, []byte, error) {
 	fl, _ := w.(http.Flusher)
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
@@ -318,8 +379,13 @@ func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCou
 	for sc.Scan() {
 		line := sc.Bytes()
 		out := append(append([]byte(nil), line...), '\n')
-		n, _ := w.Write(out)
+		n, err := w.Write(out)
 		total += n
+		if err != nil {
+			// The client hung up. Stop relaying rather than reading the rest of a
+			// completion nobody is listening to.
+			return total, usage, kept, err
+		}
 		if keep && len(kept) < 1<<20 {
 			kept = append(kept, out...)
 		}
@@ -334,7 +400,10 @@ func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCou
 			}
 		}
 	}
-	return total, usage, kept
+	// A scanner error here is a truncated stream — most often an SSE event larger than
+	// the buffer. Reporting a clean 200 for a completion the client only partly received
+	// is the kind of quiet wrongness this ledger exists to prevent.
+	return total, usage, kept, sc.Err()
 }
 
 func copyHeaders(w http.ResponseWriter, resp *http.Response) {

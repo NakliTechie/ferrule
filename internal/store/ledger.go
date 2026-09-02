@@ -25,8 +25,12 @@ type Entry struct {
 	RespBytes        int     `json:"resp_bytes"`
 }
 
-// Record appends a ledger row.
-func (d *DB) Record(e Entry) error {
+// Record appends a ledger row and returns its id.
+//
+// The id is returned rather than looked up afterwards: reading MAX(id) as a separate
+// statement is a race, and under concurrent requests it attaches one call's prompt to
+// another call's row — the single worst way for a content log to be wrong.
+func (d *DB) Record(e Entry) (int64, error) {
 	if e.TS == 0 {
 		e.TS = now()
 	}
@@ -36,13 +40,16 @@ func (d *DB) Record(e Entry) error {
 	if e.Egress == "" {
 		e.Egress = EgressLocal
 	}
-	_, err := d.sql.Exec(`
+	res, err := d.sql.Exec(`
 INSERT INTO ledger (ts,grant_id,app,source_id,provider,model_id,requested_model,lane,egress,
                     prompt_tokens,completion_tokens,cost,latency_ms,status,err,req_bytes,resp_bytes)
 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.TS, e.GrantID, e.App, e.SourceID, e.Provider, e.ModelID, e.RequestedModel, e.Lane, e.Egress,
 		e.PromptTokens, e.CompletionTokens, e.Cost, e.LatencyMS, e.Status, e.Err, e.ReqBytes, e.RespBytes)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 // Entries returns the most recent rows, newest first.
@@ -224,9 +231,32 @@ func (d *DB) ForgetContent() (int64, error) {
 	return res.RowsAffected()
 }
 
-// LastLedgerID returns the id of the most recently recorded ledger row.
-func (d *DB) LastLedgerID() (int64, error) {
-	var id int64
-	err := d.sql.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM ledger`).Scan(&id)
-	return id, err
+// Failures returns the most recent rows that actually failed, newest first.
+//
+// Asked for directly rather than filtered out of a window of recent entries: a window
+// loses a failure as soon as enough successes follow it, and that is precisely when
+// someone goes looking for it.
+func (d *DB) Failures(limit int) ([]Entry, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := d.sql.Query(`
+SELECT id,ts,grant_id,app,source_id,provider,model_id,requested_model,lane,egress,
+       prompt_tokens,completion_tokens,cost,latency_ms,status,err,req_bytes,resp_bytes
+FROM ledger WHERE status >= 400 OR err <> '' ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		if err := rows.Scan(&e.ID, &e.TS, &e.GrantID, &e.App, &e.SourceID, &e.Provider, &e.ModelID,
+			&e.RequestedModel, &e.Lane, &e.Egress, &e.PromptTokens, &e.CompletionTokens, &e.Cost,
+			&e.LatencyMS, &e.Status, &e.Err, &e.ReqBytes, &e.RespBytes); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

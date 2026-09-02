@@ -82,16 +82,15 @@ func TestCheckpointAddASourcePipeline(t *testing.T) {
 		if r.Source.Status != store.StatusLive {
 			t.Fatalf("%s: status %q (%s)", c.provider, r.Source.Status, r.Reason.Message)
 		}
-		if c.provider == "replicate" {
-			// The passthrough lane is proven by an authenticated listing, and its models
-			// come from the collection catalogue, not /v1/models.
-			if r.Source.Lane != store.LanePassthrough {
-				t.Errorf("replicate: lane %q, want passthrough", r.Source.Lane)
-			}
-			continue
+		if c.provider == "replicate" && r.Source.Lane != store.LanePassthrough {
+			t.Errorf("replicate: lane %q, want passthrough", r.Source.Lane)
 		}
+		// Every seed source, Replicate included, must reach live with at least one
+		// classified model. Exempting one provider from the checkpoint's own bar is how
+		// a source that is live and empty — routable by nothing, explicable by no
+		// interface — gets to pass as working.
 		assertLive(t, a, r)
-		if r.Source.Kind != store.KindCloud {
+		if c.provider != "replicate" && r.Source.Kind != store.KindCloud {
 			t.Errorf("%s: kind %q, want cloud", c.provider, r.Source.Kind)
 		}
 	}

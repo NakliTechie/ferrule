@@ -33,13 +33,16 @@ vocabulary an agent branches on; the **message** is for a person; the **remedy**
 exact next move. Nothing requires parsing prose.
 
 ```
-ok · unreachable · bad_key · bad_status · no_models
-local_no_models · test_failed · unknown_provider · needs_key · needs_base_url
+ok · unreachable · bad_key · bad_status · no_models · local_no_models
+test_failed · test_timeout · unknown_provider · needs_key · needs_base_url
+insecure_url · redirect
 ```
 
 The vocabulary is an exhaustive switch in `internal/discovery/reason.go`, published in
-the brief, and every non-`ok` code carries a remedy. *Asserted:*
-`TestReasonVocabularyIsClosedAndPublished`.
+the brief, and every non-`ok` code carries a remedy. The list above is checked against
+the code rather than maintained by hand — an earlier hand-copied version had already
+drifted. *Asserted:* `TestReasonVocabularyIsClosedAndPublished`,
+`TestSpecPublishesTheActualReasonVocabulary`.
 
 ### 0.3 One verdict per distinct next action
 
@@ -52,14 +55,21 @@ CLI exit codes map one-to-one onto what the caller does next:
 | 2 | the command itself was wrong | fix the invocation |
 
 `unknown_provider`, `needs_key`, and `needs_base_url` are invocation faults and exit 2;
-every other failure is a state fault and exits 1.
+every other failure is a state fault and exits 1. *Asserted:*
+`TestExitCodesMapToNextActions`, which runs the built binary — the bug it caught was a
+typed reason being flattened to a string on the way out, which turned a 2 into a 1 while
+every in-process test still passed.
 
 ### 0.4 Bounded output
 
 The brief grows with the number of **sources and aliases a person configured** — never
 with the model catalog, the ledger, or the control log. Models are summarised as counts,
-not listed; history windows are fixed at five. `list_models` is the unbounded read, and
-you have to ask for it by name. *Asserted:* the brief must not carry a model list.
+not listed; the failure and control-call windows are fixed at five, staged operations at
+ten, the per-model egress breakdown at ten. `list_models`, `usage_summary`, and
+`egress_summary` are the unbounded reads, and you have to ask for them by name.
+*Asserted:* `TestBriefRendersTheWholeSituationInOneRead` (no model list),
+`TestBriefStaysBoundedAsHistoryGrows` (200 requests and 50 staged operations do not
+double it).
 
 ### 0.5 Every failure names its remedy
 
@@ -72,8 +82,15 @@ where the failure is read, not in a manual.
 The vault and the capability cache are written to a temporary file and renamed, so an
 interrupted write leaves the old state, never a hybrid. SQLite runs in WAL. `add` is
 idempotent by source name — running it again re-probes and updates rather than
-duplicating. `detect` re-probes what it already adopted. A staged operation applies once
-and is stamped.
+duplicating. `detect` re-probes what it already adopted. A staged operation is claimed by
+a single conditional UPDATE, so concurrent applies cannot both run it.
+
+The vault is also safe across *processes*, not just goroutines: the daemon and the CLI
+are separate processes against one file, so every mutation takes an exclusive file lock
+and re-reads the store before writing. Without that, the daemon's stale in-memory copy
+would silently erase a key the CLI had just added. *Asserted:*
+`TestVaultSurvivesAnInterruptedWrite`, `TestAddingTheSameSourceTwiceIsIdempotent`,
+`TestStagedOpAppliesExactlyOnce`.
 
 ### 0.7 The tool holds the memory
 
@@ -176,13 +193,31 @@ FERRULE.md §4.10, and what asserts it:
 
 | Gate | Test |
 |---|---|
-| Every seed source reaches `live`; a bad key reaches `failed` with a visible reason | `TestCheckpointAddASourcePipeline` |
+| Every seed source, Replicate included, reaches `live` with ≥1 classified model; a bad key reaches `failed` with a typed code and remedy | `TestCheckpointAddASourcePipeline` |
 | OpenAI-shaped calls routed to a cloud and a local model; per-call ledger attribution; 401 on revoke | `TestCheckpointRawTokensProxyAndGrants` |
 | 100 requests across 2 apps and 3 models reproduce exact per-app, per-model, per-egress counts against golden totals | `TestCheckpointObservabilityAndEgress` |
-| Passthrough bytes unaltered versus a canned fixture, key injected, egress logged as cloud | `TestCheckpointMediaPassthroughLane` |
+| Passthrough bytes unaltered versus a canned fixture — compared as bytes, against a fixture that emits literal bytes — key injected, egress logged as cloud | `TestCheckpointMediaPassthroughLane` |
 | MCP calls through the manifest; `set_alias` stages; door and caller recorded; parity lint | `TestCheckpointMCPControlFace` |
 | The control surface at the floor viewport | [design/VERIFICATION.md](design/VERIFICATION.md) |
 
-Not covered by a gate, and said plainly: no test drives a real cloud provider with a real
-key. Every cloud path is exercised against a mock speaking the same dialect. The local
-path has been driven against a real Ollama by hand, through the OpenAI Python SDK.
+### What the gates cannot tell you
+
+- **No test drives a real cloud provider with a real key.** Every cloud path is exercised
+  against a mock speaking the same dialect. The local path has been driven against a real
+  Ollama by hand, through the OpenAI Python SDK.
+- **A skipped checkpoint fails the gate.** `make check` reads verbose output and refuses
+  any `--- SKIP`, because `go test` exits 0 on a skip and two of these checkpoints need a
+  non-loopback address that a constrained runner may not have. A machine that cannot run
+  a gate has to say so, not quietly accept the package.
+- **The fresh-context rubric pass for the control surface is still unfiled.** See
+  `design/VERIFICATION.md`.
+
+### What an adversarial review found
+
+An independent adversarial review (Codex, 2026-09-03) read this codebase against the
+brief "assume the author is motivated to look finished and may have gamed their own
+gates". It found a critical control-plane hole, two more criticals, and a set of
+weakened assertions in these very harnesses — including a "byte-identical" test that
+compared re-marshalled JSON and a checkpoint that logged an egress misclassification
+instead of failing on it. The findings and their fixes are in `plan/history.md`; the
+tests named above are the corrected ones.

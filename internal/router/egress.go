@@ -8,10 +8,24 @@ import (
 	"ferrule/internal/store"
 )
 
-// Egress answers the only question the egress view exists to answer: did this request
-// leave the machine? It is decided from the URL actually dialled, not from how the
-// source was labelled — an "OpenAI-compatible" source pointed at a box down the hall is
-// off-machine, and saying otherwise would be the one lie this dashboard cannot afford.
+// Peer classifies the address a connection was actually made to. This is the
+// authoritative answer, taken from the dialer, and it is what the ledger records.
+func Peer(addr net.Addr) string {
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		host = addr.String()
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return store.EgressLocal
+	}
+	return store.EgressCloud
+}
+
+// Egress is the pre-flight guess, used to label a request before it is made and to
+// describe a source in the interface. It resolves the name itself, which can disagree
+// with what the dialer later chooses — DNS can change between the two, and a redirect
+// can move the request somewhere else entirely. Where the two disagree, Peer wins and
+// the ledger is corrected before it is written.
 func Egress(baseURL string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil {

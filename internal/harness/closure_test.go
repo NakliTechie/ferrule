@@ -30,9 +30,15 @@ func TestConfigExportsAndReimportsOnAnotherMachine(t *testing.T) {
 	}
 	tok := r.mint(t, "portable-app")
 
+	const transfer = "a-transfer-passphrase"
 	out := filepath.Join(t.TempDir(), "ferrule-config.json")
+	// The destination already exists, and is world-readable, to prove the export sets
+	// the mode rather than inheriting whatever was there.
+	if err := os.WriteFile(out, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := r.bus.Dispatch(context.Background(), "export_config",
-		api.Args{"path": out}, api.DoorCLI, "test"); err != nil {
+		api.Args{"path": out, "passphrase": transfer}, api.DoorCLI, "test"); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(out)
@@ -47,26 +53,24 @@ func TestConfigExportsAndReimportsOnAnotherMachine(t *testing.T) {
 		t.Errorf("export written with mode %v, want 0600", info.Mode().Perm())
 	}
 
-	// "Another machine": a second config directory, seeded with the same vault identity
-	// the person carries with the file.
+	// "Another machine": a second config directory with its own, different vault
+	// identity. Nothing is carried across but the one file — which is the whole claim.
+	// An earlier version of this test copied vault.identity over first, which meant it
+	// was proving that two artefacts move a configuration, not one.
 	dir2 := t.TempDir()
-	for _, f := range []string{"vault.identity"} {
-		b, err := os.ReadFile(filepath.Join(r.app.Dir, f))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir2, f), b, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	a2, err := app.Open(app.Options{Dir: dir2})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a2.Close()
 	bus2 := api.New(a2).Bus()
+	// The wrong passphrase must not open it.
 	if _, err := bus2.Dispatch(context.Background(), "import_config",
-		api.Args{"path": out}, api.DoorCLI, "test"); err != nil {
+		api.Args{"path": out, "passphrase": "not-the-passphrase"}, api.DoorCLI, "test"); err == nil {
+		t.Fatal("the export opened with the wrong passphrase")
+	}
+	if _, err := bus2.Dispatch(context.Background(), "import_config",
+		api.Args{"path": out, "passphrase": transfer}, api.DoorCLI, "test"); err != nil {
 		t.Fatal(err)
 	}
 

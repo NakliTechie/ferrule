@@ -75,7 +75,17 @@ func cmdServe(args []string) error {
 			fmt.Println(i18n.T("serve.detected", live))
 		}()
 	}
+	// The catalog refresh is the one request Ferrule makes on its own behalf. It carries
+	// nothing about the person — no key, no prompt, no identifier — but it is still an
+	// outbound request to a third party, so it is disclosed at start and can be turned
+	// off, rather than being quietly excluded from "nothing phones home".
+	if a.DB.Setting(store.SetCatalogRefresh, "on") != "on" {
+		fmt.Println(i18n.T("serve.catalogOff", a.Catalog.Date()))
+	}
 	go func() {
+		if a.DB.Setting(store.SetCatalogRefresh, "on") != "on" {
+			return
+		}
 		if a.Catalog.Stale() {
 			_ = a.Catalog.Refresh()
 		}
@@ -86,6 +96,9 @@ func cmdServe(args []string) error {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if a.DB.Setting(store.SetCatalogRefresh, "on") != "on" {
+					continue
+				}
 				if a.Catalog.Stale() {
 					_ = a.Catalog.Refresh()
 				}

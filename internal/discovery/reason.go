@@ -25,6 +25,8 @@ const (
 	CodeUnknownProvider Code = "unknown_provider"
 	CodeNeedsKey        Code = "needs_key"
 	CodeNeedsBaseURL    Code = "needs_base_url"
+	CodeInsecureURL     Code = "insecure_url"
+	CodeRedirect        Code = "redirect"
 )
 
 // Reason is a typed outcome: what happened, what it means, and the exact next move.
@@ -67,6 +69,10 @@ func (c Code) message(detail ...any) string {
 		return i18n.T("reason.needs_key", detail...)
 	case CodeNeedsBaseURL:
 		return i18n.T("reason.needs_base_url")
+	case CodeInsecureURL:
+		return i18n.T("reason.insecure_url", detail...)
+	case CodeRedirect:
+		return i18n.T("reason.redirect", detail...)
 	}
 	return string(c)
 }
@@ -93,6 +99,10 @@ func (c Code) remedy() string {
 		return i18n.T("remedy.needs_key")
 	case CodeNeedsBaseURL:
 		return i18n.T("remedy.needs_base_url")
+	case CodeInsecureURL:
+		return i18n.T("remedy.insecure_url")
+	case CodeRedirect:
+		return i18n.T("remedy.redirect")
 	}
 	return ""
 }
@@ -120,7 +130,7 @@ func reasonf(code Code, message string) Reason {
 func Codes() []Code {
 	return []Code{CodeOK, CodeUnreachable, CodeBadKey, CodeBadStatus, CodeNoModels,
 		CodeLocalNoModels, CodeTestFailed, CodeTestTimeout, CodeUnknownProvider,
-		CodeNeedsKey, CodeNeedsBaseURL}
+		CodeNeedsKey, CodeNeedsBaseURL, CodeInsecureURL, CodeRedirect}
 }
 
 // Code_ returns the code as a plain string, for storage.
@@ -134,3 +144,8 @@ func (r Reason) Code_() string {
 // RemedyFor exposes a code's remedy, so the contract's "every verdict names a next
 // action" can be asserted rather than asked for on trust.
 func RemedyFor(c Code) string { return c.remedy() }
+
+// UnknownProvider is the typed refusal for a provider id that is not in the seed set.
+// Exported so callers outside this package can return it without flattening it to a
+// string — the exit code is derived from the code, so the code has to survive.
+func UnknownProvider(id string) Reason { return newReason(CodeUnknownProvider, id) }

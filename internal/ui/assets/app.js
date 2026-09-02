@@ -30,10 +30,24 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
+// The run's control token, handed to this page by the daemon that served it. Every
+// control call carries it; a page on another origin cannot read this one, so it cannot
+// obtain the token.
+const CONTROL = (document.querySelector('meta[name="ferrule-control"]') || {}).content || "";
+
+function controlHeaders(extra = {}) {
+  return {
+    "Content-Type": "application/json",
+    "X-Ferrule-Caller": "panel",
+    "X-Ferrule-Control": CONTROL,
+    ...extra,
+  };
+}
+
 async function op(name, args = {}) {
   const r = await fetch("/api/op/" + name, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Ferrule-Caller": "panel" },
+    headers: controlHeaders(),
     body: JSON.stringify(args),
   });
   const body = await r.json();
@@ -266,6 +280,7 @@ function sourceStrip() {
         el("div", { class: "meta" },
           el("span", { class: "tag", "data-where": s.where, text: s.where }), " ",
           el("span", { class: "tag", text: s.lane }),
+          s.insecure ? el("span", { class: "tag", "data-warn": "", text: T("ui.source.insecure") }) : null,
           // A failed source is not routable, so its last-known model count would only
           // contradict the board below it.
           s.status === "live"
@@ -518,9 +533,13 @@ function addResult() {
       text: T("source.added", r.source.name, r.source.provider, T("source.status.live"), r.models),
     }));
   }
+  // r.reason is a typed {code, message, remedy}; rendering the object would print
+  // "[object Object]" where the reason belongs.
+  const reason = r.reason || {};
   return el("div", { class: "state" },
     el("h3", { text: T("source.failed", r.source.name, "") }),
-    el("div", { class: "why", text: r.reason }),
+    el("div", { class: "why", text: reason.message || "" }),
+    reason.remedy ? el("p", { class: "note", text: reason.remedy }) : null,
     el("p", { class: "note", text: T("ui.add.failHint") }));
 }
 
@@ -687,14 +706,15 @@ function renderStaged(pane, bar) {
               const body = needsKey && extra.value ? { key: extra.value } : {};
               await run(async () => {
                 const r = await fetch("/api/staged/" + s.id + "/apply", {
-                  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                  method: "POST", headers: controlHeaders(), body: JSON.stringify(body) });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || r.statusText);
               }, T("ui.staged.apply"));
             } }),
           el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.staged.discard"),
             onclick: () => run(async () => {
-              const r = await fetch("/api/staged/" + s.id + "/discard", { method: "POST" });
+              const r = await fetch("/api/staged/" + s.id + "/discard", {
+                method: "POST", headers: controlHeaders() });
               if (!r.ok) throw new Error(r.statusText);
             }, T("ui.staged.discard")) }),
         ));

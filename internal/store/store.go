@@ -63,6 +63,7 @@ func Open(path string) (*DB, error) {
 var added = []struct{ table, column, decl string }{
 	{"sources", "status_code", `TEXT NOT NULL DEFAULT ''`},
 	{"sources", "status_remedy", `TEXT NOT NULL DEFAULT ''`},
+	{"sources", "insecure", `INTEGER NOT NULL DEFAULT 0`},
 }
 
 func (d *DB) migrate() error {
@@ -128,6 +129,7 @@ type Source struct {
 	StatusReason string `json:"status_reason"`
 	StatusRemedy string `json:"status_remedy"`
 	Detected     bool   `json:"detected"`
+	Insecure     bool   `json:"insecure"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
 }
@@ -139,15 +141,17 @@ func (d *DB) PutSource(s Source) error {
 	}
 	s.UpdatedAt = now()
 	_, err := d.sql.Exec(`
-INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,created_at,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name, provider=excluded.provider, kind=excluded.kind, lane=excluded.lane,
   base_url=excluded.base_url, key_ref=excluded.key_ref, status=excluded.status,
   status_code=excluded.status_code, status_reason=excluded.status_reason,
-  status_remedy=excluded.status_remedy, detected=excluded.detected, updated_at=excluded.updated_at`,
+  status_remedy=excluded.status_remedy, detected=excluded.detected,
+  insecure=excluded.insecure, updated_at=excluded.updated_at`,
 		s.ID, s.Name, s.Provider, s.Kind, s.Lane, s.BaseURL, s.KeyRef, s.Status, s.StatusCode,
-		s.StatusReason, s.StatusRemedy, boolInt(s.Detected), s.CreatedAt, s.UpdatedAt)
+		s.StatusReason, s.StatusRemedy, boolInt(s.Detected), boolInt(s.Insecure),
+		s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
@@ -160,14 +164,15 @@ WHERE id=?`, status, code, reason, remedy, now(), id)
 	return err
 }
 
-const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,created_at,updated_at`
+const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at`
 
 func scanSource(rows interface{ Scan(...any) error }) (Source, error) {
 	var s Source
-	var det int
+	var det, insec int
 	err := rows.Scan(&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef,
-		&s.Status, &s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &s.CreatedAt, &s.UpdatedAt)
-	s.Detected = det != 0
+		&s.Status, &s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &insec,
+		&s.CreatedAt, &s.UpdatedAt)
+	s.Detected, s.Insecure = det != 0, insec != 0
 	return s, err
 }
 
@@ -327,14 +332,15 @@ WHERE m.model_id = ? AND s.status = 'live'`, modelID)
 		var m Model
 		var s Source
 		var caps, mods string
-		var as, det int
+		var as, det, insec int
 		if err := rows.Scan(&m.SourceID, &m.ModelID, &m.DisplayName, &caps, &mods, &m.ContextLength,
 			&as, &m.InCost, &m.OutCost, &m.ClassifiedBy, &m.UpdatedAt,
 			&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef, &s.Status,
-			&s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &insec, &s.CreatedAt,
+			&s.UpdatedAt); err != nil {
 			return Model{}, Source{}, err
 		}
-		m.Async, s.Detected = as != 0, det != 0
+		m.Async, s.Detected, s.Insecure = as != 0, det != 0, insec != 0
 		_ = json.Unmarshal([]byte(caps), &m.Capabilities)
 		_ = json.Unmarshal([]byte(mods), &m.Modalities)
 		found = append(found, pair{m, s})
@@ -377,8 +383,8 @@ func defaultSlice(s []string) []string {
 // nothing to say about. The probe costs a real request against a real provider; keeping
 // the answer means the next probe of that id is free, and the system quietly gets better
 // the more it is used.
-func (d *DB) Learn(modelID string, caps []string) error {
-	if modelID == "" || len(caps) == 0 {
+func (d *DB) Learn(provider, modelID string, caps []string) error {
+	if provider == "" || modelID == "" || len(caps) == 0 {
 		return nil
 	}
 	b, err := json.Marshal(caps)
@@ -386,17 +392,18 @@ func (d *DB) Learn(modelID string, caps []string) error {
 		return err
 	}
 	_, err = d.sql.Exec(`
-INSERT INTO learned (model_id, capabilities, learned_at) VALUES (?,?,?)
-ON CONFLICT(model_id) DO UPDATE SET capabilities=excluded.capabilities, learned_at=excluded.learned_at`,
-		modelID, string(b), now())
+INSERT INTO learned (provider, model_id, capabilities, learned_at) VALUES (?,?,?,?)
+ON CONFLICT(provider, model_id) DO UPDATE SET
+  capabilities=excluded.capabilities, learned_at=excluded.learned_at`,
+		provider, modelID, string(b), now())
 	return err
 }
 
 // Learned returns what a previous probe found for a model id.
-func (d *DB) Learned(modelID string) ([]string, bool) {
+func (d *DB) Learned(provider, modelID string) ([]string, bool) {
 	var raw string
-	if err := d.sql.QueryRow(`SELECT capabilities FROM learned WHERE model_id=?`, modelID).
-		Scan(&raw); err != nil {
+	if err := d.sql.QueryRow(`SELECT capabilities FROM learned WHERE provider=? AND model_id=?`,
+		provider, modelID).Scan(&raw); err != nil {
 		return nil, false
 	}
 	var caps []string

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -150,21 +151,42 @@ func (b *Bus) Stage(name string, args Args, door, caller string) (any, error) {
 	if o.PersonOnly {
 		return nil, fmt.Errorf("%s", personOnlyMsg(o.Name))
 	}
-	clean := Args{}
-	var withheld []string
+	// Only declared, non-secret parameters are staged.
+	//
+	// Copying whatever else the caller sent is how a key gets into the staging table:
+	// an agent that passes it as `api_key`, or tucks it into a base URL's query string,
+	// would have Ferrule write it to SQLite in plaintext while the audit trail says the
+	// key was withheld. Anything undeclared is dropped and named.
+	declared := map[string]bool{}
 	secret := map[string]bool{}
 	for _, p := range o.Params {
+		declared[p.Name] = true
 		if p.Secret {
 			secret[p.Name] = true
 		}
 	}
+	clean := Args{}
+	var withheld, dropped []string
 	for k, v := range args {
-		if secret[k] {
+		switch {
+		case secret[k]:
 			withheld = append(withheld, k)
-			continue
+		case !declared[k]:
+			dropped = append(dropped, k)
+		default:
+			clean[k] = v
 		}
-		clean[k] = v
 	}
+	// A credential can also arrive inside a declared field. A URL is the one field shaped
+	// to hide one, so its userinfo and query are refused outright rather than staged.
+	for k, v := range clean {
+		if s, ok := v.(string); ok && urlCarriesCredential(s) {
+			delete(clean, k)
+			withheld = append(withheld, k)
+		}
+	}
+	sort.Strings(withheld)
+	sort.Strings(dropped)
 	payload, err := json.Marshal(clean)
 	if err != nil {
 		return nil, err
@@ -176,8 +198,31 @@ func (b *Bus) Stage(name string, args Args, door, caller string) (any, error) {
 	_ = b.app.DB.RecordControl(o.Name, door, caller, "staged:"+s.ID)
 	return map[string]any{
 		"staged": true, "id": s.ID, "op": o.Name, "args": clean,
-		"withheld": withheld, "message": stagedMsg(o.Name),
+		"withheld": withheld, "dropped_undeclared": dropped,
+		"message": stagedMsg(o.Name),
 	}, nil
+}
+
+// urlCarriesCredential reports whether a string is a URL with a secret tucked into it.
+func urlCarriesCredential(s string) bool {
+	if !strings.Contains(s, "://") {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	if u.User != nil {
+		return true
+	}
+	for key := range u.Query() {
+		k := strings.ToLower(key)
+		if strings.Contains(k, "key") || strings.Contains(k, "token") ||
+			strings.Contains(k, "secret") || strings.Contains(k, "password") {
+			return true
+		}
+	}
+	return false
 }
 
 // Apply lands a staged op. Extra supplies any secret parameter withheld at staging time;
@@ -197,11 +242,20 @@ func (b *Bus) Apply(ctx context.Context, id string, extra Args, door, caller str
 	for k, v := range extra {
 		args[k] = v
 	}
-	res, err := b.Dispatch(ctx, s.Op, args, door, caller)
+	// Claim it before running it. Two applies racing on the same staged operation would
+	// otherwise both read applied_at = 0 and both execute — minting two grants, adding a
+	// source twice, revoking something already revoked.
+	claimed, err := b.app.DB.ClaimStaged(id)
 	if err != nil {
 		return nil, err
 	}
-	if err := b.app.DB.MarkApplied(id); err != nil {
+	if !claimed {
+		return nil, fmt.Errorf("staged op %s was already applied", id)
+	}
+	res, err := b.Dispatch(ctx, s.Op, args, door, caller)
+	if err != nil {
+		// Hand the claim back so a corrected retry is possible.
+		_ = b.app.DB.ReleaseStaged(id)
 		return nil, err
 	}
 	return map[string]any{"applied": id, "op": s.Op, "result": res,

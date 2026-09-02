@@ -1,14 +1,15 @@
 package harness_test
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"ferrule/internal/discovery"
+	"ferrule/internal/mock"
 	"ferrule/internal/store"
 )
 
@@ -24,6 +25,7 @@ func TestCheckpointMediaPassthroughLane(t *testing.T) {
 
 	res, err := r.app.Discovery.Add(context.Background(), discovery.AddRequest{
 		Name: "replicate", Provider: "replicate", BaseURL: up.BaseURL(), Key: providerKey,
+		AllowInsecure: true, // the fixture is http on the LAN interface, deliberately
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,18 +100,18 @@ func TestCheckpointMediaPassthroughLane(t *testing.T) {
 	}
 
 	// Response bytes reached the caller unaltered.
-	var got, want map[string]any
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatalf("response is not the provider's JSON: %v", err)
+	//
+	// Compared as bytes, not as parsed JSON. An earlier version of this test unmarshalled
+	// both sides and re-marshalled them before comparing, which would have passed
+	// happily while Ferrule reordered keys, reindented, or dropped whitespace — the exact
+	// alterations this lane promises never to make.
+	canned := []byte(mock.PredictionFixture)
+	if !bytes.Equal(body, canned) {
+		t.Fatalf("response body was altered:\n got %q\nwant %q", body, canned)
 	}
-	canned := `{"id":"pred_harness_1","status":"succeeded","model":"black-forest-labs/flux-schnell","output":["https://example.invalid/out.webp"],"metrics":{"predict_time":1.25}}`
-	if err := json.Unmarshal([]byte(canned), &want); err != nil {
-		t.Fatal(err)
-	}
-	gotJSON, _ := json.Marshal(got)
-	wantJSON, _ := json.Marshal(want)
-	if string(gotJSON) != string(wantJSON) {
-		t.Fatalf("response body was altered:\n got %s\nwant %s", gotJSON, wantJSON)
+	// And the headers the provider set arrived as it set them.
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type became %q", ct)
 	}
 
 	// The ledger records it as a passthrough call that went off-machine.
@@ -148,6 +150,7 @@ func TestPassthroughLaneIsNotServedByTheUnifiedEndpoint(t *testing.T) {
 	defer up.Close()
 	if _, err := r.app.Discovery.Add(context.Background(), discovery.AddRequest{
 		Name: "replicate", Provider: "replicate", BaseURL: up.BaseURL(), Key: "r8_key",
+		AllowInsecure: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

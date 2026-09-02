@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"ferrule/internal/api"
 	"ferrule/internal/mock"
@@ -64,10 +65,13 @@ func TestCheckpointRawTokensProxyAndGrants(t *testing.T) {
 			t.Errorf("%s: usage not captured (%d/%d)", e.ModelID, e.PromptTokens, e.CompletionTokens)
 		}
 	}
-	if got := byModel["claude-sonnet-5"].Egress; got != store.EgressCloud {
-		// The mock listens on 127.0.0.1, so a source labelled cloud whose URL is
-		// loopback is correctly recorded as local; assert on the classifier instead.
-		t.Logf("cloud source dialled loopback; egress recorded as %q", got)
+	// Egress is asserted, not logged. Both fixtures are on loopback here, so both rows
+	// must say local — and if the classifier ever started trusting the source's label
+	// instead of the address it dialled, this is where it would show.
+	for id, e := range byModel {
+		if e.Egress != store.EgressLocal {
+			t.Errorf("%s: egress %q, want local — both fixtures are on loopback", id, e.Egress)
+		}
 	}
 	if byModel["claude-sonnet-5"].Cost <= 0 {
 		t.Errorf("cloud call priced at %v, want a positive cost from the catalog",
@@ -222,5 +226,82 @@ func TestFerruleListsWhatItCanServe(t *testing.T) {
 		if !ids[want] {
 			t.Errorf("/v1/models omits %q", want)
 		}
+	}
+}
+
+// An alias that exists but has no reachable rung must fail, not quietly resolve to
+// something else with a similar name.
+//
+// This is the failure that would matter most: a person points an alias at their own
+// machine, the runtime goes down, and the router helpfully finds a cloud model with the
+// same id and sends the prompt there. Ferrule's entire claim is about where prompts go.
+func TestExhaustedAliasDoesNotFallThroughToAnotherSource(t *testing.T) {
+	r := newRig(t)
+
+	cloud := mock.New("sk-cloud", "qwen3:8b") // the same model id, on a cloud source
+	defer cloud.Close()
+	local := mock.New("", "qwen3:8b")
+	defer local.Close()
+
+	r.addSource(t, "anthropic", "anthropic", "sk-cloud", cloud)
+	localSrc := r.addLocal(t, "ollama", local)
+
+	if _, err := r.bus.Dispatch(context.Background(), "set_alias", api.Args{
+		"name": "qwen3:8b", "ladder": []any{localSrc.ID + "/qwen3:8b"},
+	}, api.DoorCLI, "test"); err != nil {
+		t.Fatal(err)
+	}
+	// The local source goes dark.
+	if err := r.app.DB.SetSourceStatus(localSrc.ID, store.StatusFailed,
+		"unreachable", "the runtime stopped", "start it again"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Everything the fixture itself sent is already on the record; only what happens
+	// after this line is the router's doing.
+	before := len(cloud.Requests())
+
+	tok := r.mint(t, "careful-app")
+	resp, raw := r.chat(t, tok, "qwen3:8b", false)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("an exhausted alias was served from another source: %s", raw)
+	}
+	if !strings.Contains(string(raw), "qwen3:8b") {
+		t.Errorf("the error does not name the alias that could not be served: %s", raw)
+	}
+	if after := cloud.Requests()[before:]; len(after) != 0 {
+		t.Fatalf("a prompt reached the cloud source the alias never pointed at: %+v", after)
+	}
+}
+
+// Streaming must be a relay, not a buffer.
+//
+// The earlier streaming test read the whole response and then asserted the bytes were
+// there, which a proxy that quietly accumulated the entire completion and flushed it at
+// the end would also pass. What matters to a person watching tokens appear is that each
+// chunk leaves Ferrule when it arrives, so that is what is measured here.
+func TestStreamingIsRelayedIncrementally(t *testing.T) {
+	r := newRig(t)
+	up := mock.New("", "qwen3:8b")
+	up.ChunkDelay = 120 * time.Millisecond
+	defer up.Close()
+	r.addLocal(t, "ollama", up)
+	tok := r.mint(t, "stream-app")
+
+	lines, at := r.chatStream(t, tok, "qwen3:8b")
+	if len(lines) < 4 {
+		t.Fatalf("%d stream lines, want the chunks plus a terminator: %v", len(lines), lines)
+	}
+	if lines[len(lines)-1] != "data: [DONE]" {
+		t.Errorf("stream did not end with [DONE]: %q", lines[len(lines)-1])
+	}
+	// The first chunk must arrive well before the last one was even produced upstream.
+	firstToLast := at[len(at)-1] - at[0]
+	if firstToLast < 200*time.Millisecond {
+		t.Errorf("all %d chunks arrived within %v of each other; the proxy buffered the "+
+			"stream instead of relaying it", len(lines), firstToLast)
+	}
+	if at[0] > 250*time.Millisecond {
+		t.Errorf("the first chunk took %v to arrive; it should leave as soon as it lands", at[0])
 	}
 }

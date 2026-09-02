@@ -28,6 +28,7 @@ ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, v)
 const (
 	SetContentLogging = "content_logging" // "on" | "off" (default off, §4.5)
 	SetCrossOrigin    = "cross_origin"    // "on" | "off" (default off, developer setting)
+	SetCatalogRefresh = "catalog_refresh" // "on" | "off" (default on, disclosed)
 )
 
 // StagedOp is a mutating control-plane op waiting for a person to apply it (§4.7).
@@ -131,4 +132,23 @@ func (d *DB) ControlLog(limit int) ([]ControlCall, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ClaimStaged atomically marks a staged op applied, returning false when someone else
+// already had it. The check and the write are one statement on purpose: doing them
+// separately is what lets two concurrent applies both decide they are first.
+func (d *DB) ClaimStaged(id string) (bool, error) {
+	res, err := d.sql.Exec(`UPDATE staged_ops SET applied_at=? WHERE id=? AND applied_at=0`, now(), id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// ReleaseStaged hands a claim back when the operation it guarded failed, so a corrected
+// retry is possible rather than the entry being stranded.
+func (d *DB) ReleaseStaged(id string) error {
+	_, err := d.sql.Exec(`UPDATE staged_ops SET applied_at=0 WHERE id=?`, id)
+	return err
 }

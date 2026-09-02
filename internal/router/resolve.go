@@ -29,18 +29,27 @@ func (r *Router) Resolve(name string) ([]Target, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s", i18n.T("route.unknownModel", name))
 	}
-	if ts, err := r.fromAlias(name, "alias"); err == nil {
-		return ts, nil
+	// An alias that exists but has no reachable rung is an error, not an absence.
+	//
+	// Falling through to the next resolution step here would be the worst kind of
+	// helpful: a person points `local` at their own machine, the runtime goes down, and
+	// Ferrule quietly finds a cloud model with the same name and sends the prompt there.
+	// The whole product is a claim about where prompts go; guessing is not available.
+	if _, err := r.db.Alias(name); err == nil {
+		return r.fromAlias(name, "alias")
 	}
 	if rm, err := r.db.Remap(name); err == nil {
-		if ts, err := r.fromAlias(rm.Target, "remap→alias"); err == nil {
-			return ts, nil
+		if _, err := r.db.Alias(rm.Target); err == nil {
+			return r.fromAlias(rm.Target, "remap→alias")
 		}
 		if sid, mid, ok := store.SplitTarget(rm.Target); ok {
-			if t, err := r.direct(sid, mid, "remap"); err == nil {
-				return []Target{t}, nil
+			t, err := r.direct(sid, mid, "remap")
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", i18n.T("route.remapDark", name, rm.Target), err)
 			}
+			return []Target{t}, nil
 		}
+		return nil, fmt.Errorf("%s", i18n.T("route.remapDark", name, rm.Target))
 	}
 	if sid, mid, ok := store.SplitTarget(name); ok {
 		// Accept both the source id and its display name on the left of the slash.

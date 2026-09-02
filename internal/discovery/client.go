@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,6 +68,9 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 	if code == http.StatusUnauthorized || code == http.StatusForbidden {
 		return nil, newReason(CodeBadKey, code)
 	}
+	if code >= 300 && code < 400 {
+		return nil, newReason(CodeRedirect, trim(string(raw)))
+	}
 	if code != http.StatusOK {
 		return nil, newReason(CodeBadStatus, code, trim(string(raw)))
 	}
@@ -118,9 +122,10 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 	}
 	code, raw, err = e.httpDo(ctx, spec, http.MethodGet, provider.URL(baseURL, "collections/text-to-image"), key, nil)
 	if err != nil || code != http.StatusOK {
-		// The key is good; the catalogue call is a convenience. Report the source live
-		// with no models rather than failing a working key.
-		return []listedModel{}, nil
+		// The key works but the catalogue does not. A live source with nothing on it is
+		// a source that cannot be routed to and that no interface can explain — so it
+		// fails, with the reason, rather than sitting green and empty.
+		return nil, newReason(CodeNoModels)
 	}
 	var doc struct {
 		Models []struct {
@@ -130,7 +135,7 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return []listedModel{}, nil
+		return nil, newReason(CodeNoModels)
 	}
 	out := make([]listedModel, 0, len(doc.Models))
 	for _, m := range doc.Models {
@@ -138,6 +143,9 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 			continue
 		}
 		out = append(out, listedModel{ID: m.Owner + "/" + m.Name, Display: m.Description})
+	}
+	if len(out) == 0 {
+		return nil, newReason(CodeNoModels)
 	}
 	return out, nil
 }
@@ -209,7 +217,19 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trim(string(raw))))
 }
 
+// secretish matches the shapes provider keys come in. Broad on purpose: a slightly
+// vaguer error message costs nothing, and a key copied into `sources.status_reason`
+// costs everything.
+var secretish = regexp.MustCompile(
+	`(?i)\b(?:sk-[A-Za-z0-9_\-]{8,}|gsk_[A-Za-z0-9_\-]{8,}|r8_[A-Za-z0-9_\-]{8,}|` +
+		`frl_[A-Za-z0-9_\-]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,}|` +
+		`(?:api[-_]?key|authorization|x-api-key)["\'\s:=]+[A-Za-z0-9._\-]{12,})`)
+
+// trim bounds an upstream message and strips anything key-shaped out of it first. These
+// strings are persisted, and they are written by the provider — a provider that echoes
+// the credential it received would otherwise have Ferrule store it.
 func trim(s string) string {
+	s = secretish.ReplaceAllString(s, "[redacted]")
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 	if len(s) > 220 {
 		return s[:220] + "…"

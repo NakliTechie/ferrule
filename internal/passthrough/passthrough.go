@@ -31,7 +31,14 @@ type Handler struct {
 
 // New builds a passthrough handler.
 func New(db *store.DB, v vault.Vault) *Handler {
-	return &Handler{db: db, vault: v, client: &http.Client{Timeout: 0}}
+	return &Handler{db: db, vault: v, client: &http.Client{
+		Timeout: 0,
+		// A redirect would re-send the injected provider key to whatever host the
+		// response names. Refuse, and hand the caller the redirect to decide about.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}}
 }
 
 // Mount registers the media lane on mux.
@@ -65,6 +72,19 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	src, err := h.db.SourceByName(name)
 	if err != nil {
 		http.Error(w, i18n.T("source.notFound", name), http.StatusNotFound)
+		return
+	}
+	// This mount forwards an arbitrary method and path to the provider with the stored
+	// key attached. That is the deal for a media source whose shape cannot be normalised
+	// — and it must not be the deal for anything else, or an app token would become a
+	// general-purpose credential for every provider account the person owns: listing
+	// files, deleting fine-tunes, reading billing.
+	if src.Lane != store.LanePassthrough {
+		http.Error(w, i18n.T("passthrough.wrongLane", src.Name), http.StatusForbidden)
+		return
+	}
+	if src.Status != store.StatusLive {
+		http.Error(w, i18n.T("passthrough.notLive", src.Name, src.Status), http.StatusFailedDependency)
 		return
 	}
 	spec, ok := provider.Get(src.Provider)
@@ -117,7 +137,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", src.Name, err.Error())
-		_ = h.db.Record(entry)
+		_, _ = h.db.Record(entry)
 		http.Error(w, entry.Err, http.StatusBadGateway)
 		return
 	}
@@ -139,7 +159,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	if resp.StatusCode >= 400 {
 		entry.Err = i18n.T("reason.bad_status", resp.StatusCode, "")
 	}
-	_ = h.db.Record(entry)
+	_, _ = h.db.Record(entry)
 }
 
 // flushWriter pushes each chunk out as it arrives so a streaming provider stays streaming.

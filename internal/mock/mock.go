@@ -11,7 +11,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"time"
 )
+
+// PredictionFixture is the exact response the mock returns for a prediction, byte for
+// byte, so a test can compare against it literally.
+const PredictionFixture = `{"id":"pred_harness_1","status":"succeeded","model":"black-forest-labs/flux-schnell","output":["https://example.invalid/out.webp"],"metrics":{"predict_time":1.25}}`
 
 // Provider is a fake upstream.
 type Provider struct {
@@ -22,6 +27,9 @@ type Provider struct {
 	Models []string
 	// Fail makes every request answer 500, to exercise ladder fallback.
 	Fail bool
+	// ChunkDelay spaces out streamed chunks, so a caller can prove it is receiving them
+	// as they are produced rather than in one buffered lump at the end.
+	ChunkDelay time.Duration
 	// Down makes the server refuse connections after Stop.
 	mu       sync.Mutex
 	requests []Request
@@ -98,11 +106,13 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"owner": "black-forest-labs", "name": "flux-schnell", "description": "fast image"},
 		}})
 	case r.URL.Path == "/v1/predictions" && r.Method == http.MethodPost:
-		writeJSON(w, map[string]any{
-			"id": "pred_harness_1", "status": "succeeded", "model": "black-forest-labs/flux-schnell",
-			"output":  []string{"https://example.invalid/out.webp"},
-			"metrics": map[string]any{"predict_time": 1.25},
-		})
+		// Written as literal bytes, not marshalled from a map. The passthrough lane
+		// promises the response reaches the caller unaltered, and a fixture that is
+		// itself re-serialised cannot tell you whether that promise held: Go sorts map
+		// keys, so a byte comparison would be measuring the fixture, not the proxy.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(PredictionFixture))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, `{"error":{"message":"no route %s"}}`, r.URL.Path)
@@ -131,6 +141,11 @@ func (p *Provider) writeChat(w http.ResponseWriter, body []byte) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl, _ := w.(http.Flusher)
 		for _, chunk := range []string{"ferrule", " routed", " this"} {
+			// A real provider does not emit a whole completion at once. Spacing the
+			// chunks is what lets a test tell a relay from a buffer.
+			if p.ChunkDelay > 0 {
+				time.Sleep(p.ChunkDelay)
+			}
 			fmt.Fprintf(w, "data: %s\n\n", mustJSON(map[string]any{
 				"id": "chatcmpl-mock", "object": "chat.completion.chunk", "model": req.Model,
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": chunk}}},
