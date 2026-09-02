@@ -89,6 +89,10 @@ func run(dir string, port, traffic int) error {
 		}
 		if _, err := a.Discovery.Add(ctx, discovery.AddRequest{
 			Name: name, Provider: name, BaseURL: p.BaseURL(), Key: keys[name],
+			// The fixtures are http on this host's LAN interface, so the egress view has
+			// something honest to call off-machine. Ferrule refuses that unless it is
+			// acknowledged, so the demo acknowledges it.
+			AllowInsecure: true,
 		}); err != nil {
 			return err
 		}

@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run
+.PHONY: build check test vet fmt dist clean run demo
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
@@ -25,6 +25,11 @@ test:
 
 run: build
 	./$(BINARY) serve
+
+# A whole Ferrule with fake providers, so it can be evaluated end to end without owning
+# a single API key. Not built by `dist`; it is a development tool, not the product.
+demo:
+	go run ./cmd/ferrule-demo
 
 # One statically-linked binary per target, no cgo, no runtime dependencies.
 dist:

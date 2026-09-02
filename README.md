@@ -142,12 +142,30 @@ manifest rather than hidden from it. Inference does not go through this face.
 The manifest is generated from the same command bus the panel and the CLI dispatch
 through, so `manifest ⊇ command bus` holds by construction — and a test asserts it.
 
+## Try it without any keys
+
+```
+make demo
+```
+
+Stands up a whole Ferrule with fake providers — a detected local runtime, three cloud
+sources, one that deliberately fails — mints app tokens, replays traffic so Usage and
+Egress have something to show, and prints the URL. Nothing you own is involved and
+nothing leaves the machine. Ctrl-C to stop; it tells you the scratch directory to delete.
+
+If you have Ollama or LM Studio running, `ferrule add` with no arguments adopts it with
+no key and no config file at all.
+
 ## Verify it yourself
 
 ```
 make check     # gofmt, go vet, and the checkpoint harnesses
 make dist      # all five targets, CGO off
 ```
+
+`make check` refuses a skipped test as well as a failing one: two checkpoints need a
+non-loopback address, and a machine that cannot run a gate has to say so rather than
+quietly accept the package.
 
 The harnesses are the gates, not self-reports: the add-a-source pipeline reaching `live`
 for every seed provider and `failed` *with a visible reason* for a bad key; the OpenAI
