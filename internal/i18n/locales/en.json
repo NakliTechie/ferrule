@@ -3,7 +3,7 @@
   "app.tagline": "One local panel: every key held once, every model — local or cloud — visible, switchable, and accountable for what leaves your machine.",
   "app.sovereignty": "Your keys are persisted locally and encrypted. That is not the same as persisted on someone's server. Ferrule has no account, sends no telemetry, and never transmits a key anywhere but the provider you gave it for. The one request Ferrule makes on its own behalf is a background fetch of the public model-capability catalog; it carries nothing about you, and you can turn it off.",
   "cli.usage": "ferrule — a local key vault and model router",
-  "cli.usage.verbs": "Verbs:\n  status   the whole situation in one read (--json for an agent)\n  serve    start the daemon (endpoints + control surface)\n  add      add a source (paste a key, or adopt a detected runtime)\n  ls       list sources / models / aliases\n  alias    create, edit, or remove an alias\n  remap    serve a hardcoded model id from a model of your choosing\n  key      mint or revoke an app token\n  usage    per-app and per-model spend, volume, and egress\n  export   write a portable encrypted configuration file\n  import   read a portable encrypted configuration file\n  version  print the version\n\nExit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the\ncommand was wrong.",
+  "cli.usage.verbs": "Verbs:\n  status   the whole situation in one read (--json for an agent)\n  serve    start the daemon (endpoints + control surface)\n  add      add a source (paste a key, or adopt a detected runtime)\n  ls       list sources / models / aliases\n  refresh  re-check a stored source, using the key it already holds\n  rm       remove a source, its models, and its key\n  alias    create, edit, or remove an alias\n  remap    serve a hardcoded model id from a model of your choosing\n  key      mint or revoke an app token\n  usage    per-app and per-model spend, volume, and egress\n  export   write a portable encrypted configuration file\n  import   read a portable encrypted configuration file\n  version  print the version\n\nExit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the\ncommand was wrong.",
   "cli.unknownVerb": "unknown verb %q — run `ferrule` with no arguments for usage",
   "cli.needArg": "%s needs an argument",
   "serve.listening": "Ferrule listening on http://%s",
@@ -248,5 +248,6 @@
   "reason.model_unavailable": "tried %d model(s) and the provider served none of them; the last said: %s",
   "remedy.model_unavailable": "Your key works — Ferrule listed your models with it. These particular models are not available to your account or tier. Add the source with --test-model <id> naming one you know you can call.",
   "remedy.model_unavailable_named": "Your key works — Ferrule listed your models with it. The model you named, %s, is not one this account can call: the provider retired it or your tier does not include it. Name a different one, or drop --test-model and let Ferrule pick.",
-  "source.kept": "  kept:   %s is unchanged and still live — this attempt replaced nothing."
+  "source.kept": "  kept:   %s is unchanged and still live — this attempt replaced nothing.",
+  "cli.noSuchSource": "no source named %q — run `ferrule ls sources` to see what is stored"
 }

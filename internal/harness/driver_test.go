@@ -380,3 +380,53 @@ func TestFlagsApplyOnEitherSideOfThePositional(t *testing.T) {
 		t.Errorf("-insecure after the positional was ignored:\n%s", out)
 	}
 }
+
+// A person at the command line must be able to complete a source's life, not only start
+// it. The bus carried refresh_source and remove_source from the first commit; the CLI
+// had neither verb, so the only way to retry a stored source was to add it again and
+// retype a key Ferrule had already accepted and encrypted — and there was no way at all
+// to remove one. This runs the binary, because that gap was invisible to every test that
+// dispatched on the bus directly.
+func TestTheCLICanFinishASourcesLifeAndNotOnlyStartIt(t *testing.T) {
+	bin := buildFerrule(t)
+	dir := t.TempDir()
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+
+	run := func(stdin string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), "FERRULE_CONFIG_DIR="+dir)
+		cmd.Stdin = strings.NewReader(stdin)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("`ferrule %s`: %v", strings.Join(args, " "), err)
+		}
+		return string(out), code
+	}
+
+	if out, code := run("sk-harness\n", "add", "openai-compatible",
+		"-name", "house", "-base-url", up.BaseURL()); code != 0 {
+		t.Fatalf("add exited %d:\n%s", code, out)
+	}
+	// The key was accepted and encrypted once; re-checking the source must not ask for it
+	// a second time, which is why this passes no stdin at all.
+	if out, code := run("", "refresh", "house"); code != 0 {
+		t.Fatalf("refresh exited %d:\n%s", code, out)
+	}
+	if out, code := run("", "rm", "house"); code != 0 {
+		t.Fatalf("rm exited %d:\n%s", code, out)
+	}
+	// Gone means gone, and naming something that is not there is the command being
+	// wrong, not the world being broken.
+	out, code := run("", "refresh", "house")
+	if code != 2 {
+		t.Errorf("refreshing a removed source exited %d, want 2\n%s", code, out)
+	}
+	if !strings.Contains(out, "ls sources") {
+		t.Errorf("the refusal does not say how to find the real names:\n%s", out)
+	}
+}

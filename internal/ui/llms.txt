@@ -91,8 +91,8 @@ published in `brief.reason_codes`.
 
 ## CLI
 
-`ferrule status [--json]` · `serve` · `add [provider]` · `ls sources|models|aliases` ·
-`alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
+`ferrule status [--json]` · `serve` · `add [provider] [--test-model ID]` ·
+`ls sources|models|aliases` · `refresh <source>` · `rm <source>` · `alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
 `version`
 
 Exit codes map one-to-one to next actions: **0** worked · **1** did not, and the reason

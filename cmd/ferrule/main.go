@@ -38,6 +38,10 @@ func main() {
 		err = cmdAdd(rest)
 	case "ls", "list":
 		err = cmdLs(rest)
+	case "refresh":
+		err = cmdRefresh(rest)
+	case "rm", "remove":
+		err = cmdRemove(rest)
 	case "alias":
 		err = cmdAlias(rest)
 	case "remap":
@@ -81,7 +85,17 @@ const (
 	exitBadArgs = 2
 )
 
+// usageErr marks an invocation fault — the command was wrong, not the world. It exits 2,
+// which is the contract's "fix the command", rather than 1's "fix the cause and re-run".
+type usageErr string
+
+func (e usageErr) Error() string { return string(e) }
+
 func exitFor(err error) int {
+	var u usageErr
+	if errors.As(err, &u) {
+		return exitBadArgs
+	}
 	var r discovery.Reason
 	if errors.As(err, &r) {
 		switch r.Code {

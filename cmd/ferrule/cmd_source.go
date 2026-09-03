@@ -363,3 +363,90 @@ func money(f float64) string {
 	}
 	return fmt.Sprintf("%.2f", f)
 }
+
+// cmdRefresh re-runs the pipeline for a source that is already stored, using the key it
+// already holds.
+//
+// Without this verb the only way to retry a source was to add it again and retype the
+// key — for a source whose key Ferrule had already accepted, encrypted, and proven. That
+// is the friction Ferrule exists to remove, and it bit the first real cloud key: DeepSeek
+// answered "insufficient balance", which is a thing you fix at the provider and then ask
+// Ferrule to look again.
+func cmdRefresh(args []string) error {
+	fs := flag.NewFlagSet("refresh", flag.ContinueOnError)
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(positional) == 0 {
+		return usageErr(i18n.T("cli.needArg", "refresh <source>"))
+	}
+	a, err := open()
+	if err != nil {
+		return err
+	}
+	defer a.Close()
+
+	src, err := resolveSource(a.DB, positional[0])
+	if err != nil {
+		return err
+	}
+	a.Discovery.OnStep(func(st discovery.Step) {
+		fmt.Fprintf(os.Stderr, "  %s: %s\n", st.Source, st.Note)
+	})
+	raw, err := api.New(a).Bus().Dispatch(context.Background(), "refresh_source",
+		api.Args{"id": src.ID}, api.DoorCLI, "cli")
+	if err != nil {
+		return err
+	}
+	r, err := addResult(raw)
+	if err != nil {
+		return err
+	}
+	printResult(r)
+	if !r.Reason.OK() {
+		os.Exit(exitFailed)
+	}
+	return nil
+}
+
+// cmdRemove deletes a source, its models, and its key.
+func cmdRemove(args []string) error {
+	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(positional) == 0 {
+		return usageErr(i18n.T("cli.needArg", "rm <source>"))
+	}
+	a, err := open()
+	if err != nil {
+		return err
+	}
+	defer a.Close()
+
+	src, err := resolveSource(a.DB, positional[0])
+	if err != nil {
+		return err
+	}
+	if _, err := api.New(a).Bus().Dispatch(context.Background(), "remove_source",
+		api.Args{"id": src.ID}, api.DoorCLI, "cli"); err != nil {
+		return err
+	}
+	fmt.Println(i18n.T("source.removed", src.Name))
+	return nil
+}
+
+// resolveSource takes what a person would type — the name they gave the source — and
+// falls back to the id an agent reading `status --json` would hold.
+func resolveSource(db *store.DB, subject string) (store.Source, error) {
+	if s, err := db.SourceByName(subject); err == nil {
+		return s, nil
+	}
+	s, err := db.Source(subject)
+	if err != nil {
+		return store.Source{}, usageErr(i18n.T("cli.noSuchSource", subject))
+	}
+	return s, nil
+}

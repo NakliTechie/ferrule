@@ -60,6 +60,8 @@ ferrule serve                     # the daemon: endpoints + the control panel
 ferrule add                       # scan localhost and adopt what is running
 ferrule add anthropic             # paste a key (read from the terminal, not from argv)
 ferrule ls models --local         # every model on this machine
+ferrule refresh anthropic         # re-check a stored source, with the key it already holds
+ferrule rm anthropic              # remove a source, its models, and its key
 ferrule alias fast <src>/qwen3:8b <src>/llama-3.3-70b   # a ladder, tried in order
 ferrule key my-app                # mint an app token, shown once
 ferrule usage --egress            # what left the machine
