@@ -36,6 +36,7 @@ type Engine struct {
 
 	mu             sync.RWMutex
 	detectOverride map[string][]string
+	testModel      string
 	scanning       int
 	onStep         func(Step)
 }
@@ -110,6 +111,9 @@ type AddRequest struct {
 	// AllowInsecure acknowledges that this source's key will travel over http to a host
 	// that is not this machine. It is never a default and it is recorded on the source.
 	AllowInsecure bool
+	// TestModel names the model the test step should use, for an account whose tier does
+	// not include whichever ones Ferrule would have picked.
+	TestModel string
 }
 
 // Result is what the pipeline produced, live or failed.
@@ -188,6 +192,9 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 		return Result{}, err
 	}
 
+	e.mu.Lock()
+	e.testModel = req.TestModel
+	e.mu.Unlock()
 	res, reason := e.run(ctx, spec, src, key)
 	if !reason.OK() {
 		src = e.fail(src, reason)
@@ -284,6 +291,13 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 	if len(unknown) > maxLiveProbes {
 		unknown = unknown[:maxLiveProbes]
 	}
+	// An account-level refusal answers for every model, so the first one cancels the rest.
+	// Without this, a provider that has simply run out of credit is asked the same
+	// question a dozen times — two probes per unknown model — before the test step gets
+	// to say so once.
+	probeCtx, stopProbing := context.WithCancel(ctx)
+	defer stopProbing()
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for _, idx := range unknown {
@@ -292,10 +306,18 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 			defer wg.Done()
 			id := out[idx].ModelID
 			var caps []string
-			if ok, _ := e.probeChat(ctx, spec, src.BaseURL, key, id); ok {
+			ok, why := e.probeChat(probeCtx, spec, src.BaseURL, key, id)
+			if !ok && accountLevel(why.Code) {
+				stopProbing()
+				return
+			}
+			if ok {
 				caps = []string{"chat"}
-			} else if ok, _ := e.probeEmbeddings(ctx, spec, src.BaseURL, key, id); ok {
+			} else if ok2, why2 := e.probeEmbeddings(probeCtx, spec, src.BaseURL, key, id); ok2 {
 				caps = []string{"embeddings"}
+			} else if accountLevel(why2.Code) {
+				stopProbing()
+				return
 			}
 			if caps == nil {
 				return
@@ -312,38 +334,66 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 	return out
 }
 
-// test fires one minimal real request against the source's most representative model.
-func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source, key string, models []store.Model) Reason {
-	chat, embed := pickTestModels(models)
+// maxTestModels bounds how many models the test step will try before giving up on a
+// source. Each attempt is a real request with max_tokens 1 — fractions of a cent — and
+// stopping at one was condemning a whole account for the sample of one it happened to
+// pick.
+const maxTestModels = 4
 
-	// On a local runtime the test doubles as a model load, so prefer an embeddings model
-	// when one is available: it wakes in a fraction of the time an 8B chat model takes,
-	// and it proves the same thing — that this source actually serves.
-	order := []struct {
-		model string
-		probe func(context.Context, provider.Spec, string, string, string) (bool, Reason)
-	}{
-		{chat, e.probeChat}, {embed, e.probeEmbeddings},
+// test fires minimal real requests until one succeeds, or until the provider says
+// something that no other model would change.
+//
+// The one-model version marked a real NVIDIA account dead: it listed 81 models, Ferrule
+// tested the first, that model was outside the account's tier, and 80 working models went
+// with it. A 404 is about a model. A 401 or a 402 is about the account, and trying
+// another model would only spend more requests learning the same thing.
+func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source, key string, models []store.Model) Reason {
+	e.mu.RLock()
+	named := e.testModel
+	e.mu.RUnlock()
+
+	candidates := testCandidates(spec, models)
+	if named != "" {
+		// A named model is the only one tried: the person is telling Ferrule which one
+		// their account can call, and guessing past it would waste requests.
+		candidates = []testCandidate{{model: named, embeddings: false}}
+		for _, m := range models {
+			if m.ModelID == named && hasCap(m, "embeddings") {
+				candidates[0].embeddings = true
+			}
+		}
 	}
-	if spec.Kind == store.KindLocal && embed != "" {
-		order[0], order[1] = order[1], order[0]
+	if len(candidates) == 0 {
+		return newReason(CodeNoModels)
 	}
 
 	var last Reason
-	tried := false
-	for _, o := range order {
-		if o.model == "" {
-			continue
+	tried := 0
+	for _, c := range candidates {
+		tried++
+		probe := e.probeChat
+		if c.embeddings {
+			probe = e.probeEmbeddings
 		}
-		tried = true
-		if ok, why := o.probe(ctx, spec, src.BaseURL, key, o.model); ok {
+		ok, why := probe(ctx, spec, src.BaseURL, key, c.model)
+		if ok {
 			return Reason{Code: CodeOK}
-		} else {
-			last = why
+		}
+		last = why
+		// Account-level answers apply to every model, so stop asking.
+		switch why.Code {
+		case CodeBadKey, CodeNoBalance, CodeTestTimeout:
+			if key == "" {
+				return why.localRemedy()
+			}
+			return why
 		}
 	}
-	if !tried {
-		return newReason(CodeNoModels)
+
+	if last.Code == CodeModelUnavailable {
+		// Every model tried was refused individually. Say how many, so "not available"
+		// does not read as "we barely looked".
+		return newReason(CodeModelUnavailable, tried, http.StatusNotFound, last.Message)
 	}
 	if key == "" {
 		return last.localRemedy()
@@ -351,25 +401,56 @@ func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source,
 	return last
 }
 
-func pickTestModels(models []store.Model) (chat, embed string) {
+// accountLevel reports whether a refusal answers for the whole account rather than for
+// the model that happened to be asked. Those need asking once.
+func accountLevel(c Code) bool {
+	return c == CodeBadKey || c == CodeNoBalance
+}
+
+// testCandidate is one model the test step may try.
+type testCandidate struct {
+	model      string
+	embeddings bool
+}
+
+// testCandidates orders what to try. Models the catalog recognised come first — a known
+// id is far likelier to be one the account can actually call than an unclassified one —
+// then cheapest first. On a local runtime an embeddings model leads, because it wakes in
+// a fraction of the time a chat model takes and proves the same thing.
+func testCandidates(spec provider.Spec, models []store.Model) []testCandidate {
 	sorted := append([]store.Model(nil), models...)
 	sort.SliceStable(sorted, func(i, j int) bool {
-		// Prefer the cheapest classified model so the test costs as close to nothing
-		// as the provider allows.
-		return sorted[i].InCost < sorted[j].InCost
+		a, b := sorted[i], sorted[j]
+		ak, bk := a.ClassifiedBy != i18n.T("classify.unknown"), b.ClassifiedBy != i18n.T("classify.unknown")
+		if ak != bk {
+			return ak
+		}
+		if a.InCost != b.InCost {
+			return a.InCost < b.InCost
+		}
+		return a.ModelID < b.ModelID
 	})
+
+	var chat, embed []testCandidate
 	for _, m := range sorted {
-		if chat == "" && hasCap(m, "chat") {
-			chat = m.ModelID
-		}
-		if embed == "" && hasCap(m, "embeddings") {
-			embed = m.ModelID
+		switch {
+		case hasCap(m, "embeddings"):
+			embed = append(embed, testCandidate{m.ModelID, true})
+		case hasCap(m, "chat") || len(m.Capabilities) == 0:
+			chat = append(chat, testCandidate{m.ModelID, false})
 		}
 	}
-	if chat == "" && embed == "" && len(sorted) > 0 {
-		chat = sorted[0].ModelID
+
+	var out []testCandidate
+	if spec.Kind == store.KindLocal && len(embed) > 0 {
+		out = append(out, embed[0])
 	}
-	return chat, embed
+	out = append(out, chat...)
+	out = append(out, embed...)
+	if len(out) > maxTestModels {
+		out = out[:maxTestModels]
+	}
+	return out
 }
 
 func hasCap(m store.Model, c string) bool {

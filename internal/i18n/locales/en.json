@@ -186,7 +186,7 @@
   "reason.local_no_models": "%s is running but has no models installed",
   "remedy.local_no_models": "Pull a model in that runtime, then rescan. Ferrule never downloads anything uninvited.",
   "reason.test_failed": "the test request failed: %s",
-  "remedy.test_failed": "The source listed models but would not serve one. Check the key's scope and the provider's status.",
+  "remedy.test_failed": "The source listed your models but would not serve one. The key authenticated, so this is about the account rather than the key: check your tier, your quota, and the provider's status page.",
   "reason.unknown_provider": "unknown provider %q",
   "remedy.unknown_provider": "Known providers: %s. Or use `openai-compatible` with --base-url for anything else that speaks the OpenAI API.",
   "reason.needs_key": "%s needs an API key",
@@ -242,5 +242,9 @@
   "control.notLocal": "The control surface is only served to this machine. Ferrule is reachable from %s for inference, but reading the vault, minting tokens and exporting configuration stay here.",
   "ui.grants.lanHint": "This machine is on your network. Give whoever this token is for the base URL below — theirs, not localhost.",
   "ui.grants.forThisMachine": "For an app on this machine",
-  "ui.grants.forOthers": "For a machine on your network"
+  "ui.grants.forOthers": "For a machine on your network",
+  "reason.no_balance": "the provider accepted the key and refused the request for payment (HTTP %d): %s",
+  "remedy.no_balance": "Your key works — Ferrule listed your models with it. The account has no credit. Top it up and add the source again.",
+  "reason.model_unavailable": "tried %d model(s) and the provider served none of them; the last said (HTTP %d): %s",
+  "remedy.model_unavailable": "Your key works — Ferrule listed your models with it. These particular models are not available to your account or tier. Add the source with --test-model <id> naming one you know you can call."
 }

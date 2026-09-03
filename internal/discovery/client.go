@@ -196,7 +196,29 @@ func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key
 	if code == http.StatusOK {
 		return true, Reason{Code: CodeOK}
 	}
-	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trimKnown(string(raw), key)))
+	return false, classifyRefusal(code, trimKnown(string(raw), key))
+}
+
+// classifyRefusal names what the provider actually refused.
+//
+// A single "test_failed" collapsed three different situations with three different next
+// moves: the key is wrong, the account has no money, and this particular model is not
+// yours. The first two were verified against real providers — DeepSeek answers 402 with
+// "Insufficient Balance" and NVIDIA answers 404 for a model outside your tier — and in
+// both cases the key had already proven itself by listing the account's models. Telling
+// someone to check their key when their key is fine sends them to fix the wrong thing.
+func classifyRefusal(code int, body string) Reason {
+	switch {
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return newReason(CodeBadKey, code)
+	case code == http.StatusPaymentRequired:
+		return newReason(CodeNoBalance, code, body)
+	case code == http.StatusNotFound:
+		// Model-level, and the caller decides whether to try another one.
+		return Reason{Code: CodeModelUnavailable, Message: CodeBadStatus.message(code, body),
+			Remedy: CodeModelUnavailable.remedy()}
+	}
+	return newReason(CodeTestFailed, CodeBadStatus.message(code, body))
 }
 
 // timeoutOrFailure names what actually went wrong. "It refused" and "it never answered"
@@ -222,7 +244,7 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 	if code == http.StatusOK {
 		return true, Reason{Code: CodeOK}
 	}
-	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trimKnown(string(raw), key)))
+	return false, classifyRefusal(code, trimKnown(string(raw), key))
 }
 
 // secretish matches the shapes provider keys come in. Broad on purpose: a slightly

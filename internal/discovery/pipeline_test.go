@@ -2,6 +2,7 @@ package discovery_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -427,4 +428,178 @@ func TestTwoRuntimesOfOneKindDoNotCollide(t *testing.T) {
 	if len(models) != 2 {
 		t.Errorf("%d models across two runtimes, want 2", len(models))
 	}
+}
+
+// The two failures real providers produced on first contact, replayed as fixtures.
+//
+// Both keys were valid — each provider listed the account's models with the key attached
+// before refusing the test request. A single `test_failed` sent the person to check a key
+// that was demonstrably fine, and in one case condemned an account with eighty working
+// models on a sample of one.
+func TestARefusalIsNamedByWhatTheProviderActuallySaid(t *testing.T) {
+	t.Run("no balance stops immediately and says the key is fine", func(t *testing.T) {
+		a := newApp(t)
+		// DeepSeek, verbatim.
+		up := mock.New("sk-real", "deepseek-chat", "deepseek-reasoner")
+		up.RefuseChat = map[string]mock.Refusal{"": {
+			Status: 402,
+			Body:   `{"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}`,
+		}}
+		defer up.Close()
+
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "deepseek", Provider: "deepseek", BaseURL: up.BaseURL(), Key: "sk-real",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Reason.Code != discovery.CodeNoBalance {
+			t.Fatalf("code %q, want no_balance", r.Reason.Code)
+		}
+		if !strings.Contains(r.Reason.Remedy, "key works") {
+			t.Errorf("the remedy does not say the key is fine: %q", r.Reason.Remedy)
+		}
+		if strings.Contains(r.Reason.Remedy, "scope") {
+			t.Errorf("the remedy still sends the person to check their key: %q", r.Reason.Remedy)
+		}
+		// An account-level refusal applies to every model, so it must not spend requests
+		// discovering that twice.
+		chats := 0
+		for _, req := range up.Requests() {
+			if strings.Contains(req.Path, "chat/completions") {
+				chats++
+			}
+		}
+		if chats != 1 {
+			t.Errorf("%d chat attempts for an account-level refusal, want 1", chats)
+		}
+	})
+
+	t.Run("one model's 404 does not condemn the account", func(t *testing.T) {
+		a := newApp(t)
+		// NVIDIA: most models outside the tier, one inside it.
+		up := mock.New("nvapi-real", "meta/llama-3.1-405b", "meta/llama-3.1-70b",
+			"meta/llama-3.1-8b-instruct")
+		up.RefuseChat = map[string]mock.Refusal{
+			"meta/llama-3.1-405b": {Status: 404, Body: `{"status":404,"title":"Not Found","detail":"Function not found for account"}`},
+			"meta/llama-3.1-70b":  {Status: 404, Body: `{"status":404,"title":"Not Found","detail":"Function not found for account"}`},
+		}
+		defer up.Close()
+
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Source.Status != store.StatusLive {
+			t.Fatalf("an account with a working model was marked %q: %s",
+				r.Source.Status, r.Reason.Message)
+		}
+		if len(r.Models) != 3 {
+			t.Errorf("%d models kept, want all 3", len(r.Models))
+		}
+	})
+
+	t.Run("every model refused says so, and the cost does not scale with the catalogue", func(t *testing.T) {
+		// The real account listed 81 models. Whatever Ferrule spends discovering that
+		// none of them work must not grow with that number, or adding a large provider
+		// on a restricted tier becomes an expensive way to be told no.
+		attempts := func(n int) (discovery.Reason, int) {
+			a := newApp(t)
+			models := make([]string, n)
+			for i := range models {
+				models[i] = fmt.Sprintf("a/model-%02d", i)
+			}
+			up := mock.New("nvapi-real", models...)
+			up.RefuseChat = map[string]mock.Refusal{"": {
+				Status: 404, Body: `{"status":404,"title":"Not Found","detail":"Function not found for account"}`,
+			}}
+			defer up.Close()
+			r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+				Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			for _, req := range up.Requests() {
+				if strings.Contains(req.Path, "chat/completions") ||
+					strings.Contains(req.Path, "embeddings") {
+					calls++
+				}
+			}
+			return r.Reason, calls
+		}
+
+		reason, small := attempts(5)
+		if reason.Code != discovery.CodeModelUnavailable {
+			t.Fatalf("code %q, want model_unavailable", reason.Code)
+		}
+		if !strings.Contains(reason.Remedy, "--test-model") {
+			t.Errorf("the remedy does not offer the way out: %q", reason.Remedy)
+		}
+		// The ceiling is a constant: at most maxLiveProbes models classified (two calls
+		// each) plus maxTestModels tested. What must never happen is a cost that follows
+		// the catalogue.
+		const ceiling = 20
+		_, large := attempts(40)
+		if small > ceiling || large > ceiling {
+			t.Errorf("5 models cost %d requests and 40 cost %d; the ceiling is %d",
+				small, large, ceiling)
+		}
+		if large-small > 4 {
+			t.Errorf("eight times the catalogue cost %d more requests (%d vs %d) — the "+
+				"attempt count is following the model list", large-small, large, small)
+		}
+	})
+
+	t.Run("--test-model names the one the account can call", func(t *testing.T) {
+		a := newApp(t)
+		up := mock.New("nvapi-real", "a/one", "a/two", "a/works")
+		up.RefuseChat = map[string]mock.Refusal{
+			"a/one": {Status: 404, Body: `{"detail":"not found"}`},
+			"a/two": {Status: 404, Body: `{"detail":"not found"}`},
+		}
+		defer up.Close()
+
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+			TestModel: "a/works",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Source.Status != store.StatusLive {
+			t.Fatalf("status %q: %s", r.Source.Status, r.Reason.Message)
+		}
+		// The model the person named is the one that proved the source. Classification
+		// still probes other ids for their capabilities — that is a different question —
+		// so what matters is that the test itself did not guess past the instruction.
+		var lastChat string
+		for _, req := range up.Requests() {
+			if strings.Contains(req.Path, "chat/completions") {
+				lastChat = req.Body
+			}
+		}
+		if !strings.Contains(lastChat, `"a/works"`) {
+			t.Errorf("the test did not use the named model; last chat was %s", lastChat)
+		}
+	})
+
+	// A genuinely bad key is still a bad key, and still stops at once.
+	t.Run("a bad key is unchanged", func(t *testing.T) {
+		a := newApp(t)
+		up := mock.New("sk-the-real-one", "deepseek-chat")
+		defer up.Close()
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "deepseek", Provider: "deepseek", BaseURL: up.BaseURL(), Key: "sk-a-typo",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Reason.Code != discovery.CodeBadKey {
+			t.Fatalf("code %q, want bad_key", r.Reason.Code)
+		}
+	})
 }

@@ -29,6 +29,10 @@ const (
 	CodeInsecureURL     Code = "insecure_url"
 	CodeRedirect        Code = "redirect"
 	CodeCredentialInURL Code = "credential_in_url"
+	// Account-level, key valid: the provider took the key and refused for money.
+	CodeNoBalance Code = "no_balance"
+	// Model-level, key valid: these particular models are not available to this account.
+	CodeModelUnavailable Code = "model_unavailable"
 )
 
 // Reason is a typed outcome: what happened, what it means, and the exact next move.
@@ -77,6 +81,10 @@ func (c Code) message(detail ...any) string {
 		return i18n.T("reason.redirect", detail...)
 	case CodeCredentialInURL:
 		return i18n.T("reason.credential_in_url", detail...)
+	case CodeNoBalance:
+		return i18n.T("reason.no_balance", detail...)
+	case CodeModelUnavailable:
+		return i18n.T("reason.model_unavailable", detail...)
 	}
 	return string(c)
 }
@@ -109,6 +117,10 @@ func (c Code) remedy() string {
 		return i18n.T("remedy.redirect")
 	case CodeCredentialInURL:
 		return i18n.T("remedy.credential_in_url")
+	case CodeNoBalance:
+		return i18n.T("remedy.no_balance")
+	case CodeModelUnavailable:
+		return i18n.T("remedy.model_unavailable")
 	}
 	return ""
 }
@@ -137,7 +149,7 @@ func Codes() []Code {
 	return []Code{CodeOK, CodeUnreachable, CodeBadKey, CodeBadStatus, CodeNoModels,
 		CodeLocalNoModels, CodeTestFailed, CodeTestTimeout, CodeUnknownProvider,
 		CodeNeedsKey, CodeNeedsBaseURL, CodeInsecureURL, CodeRedirect,
-		CodeCredentialInURL}
+		CodeCredentialInURL, CodeNoBalance, CodeModelUnavailable}
 }
 
 // Code_ returns the code as a plain string, for storage.

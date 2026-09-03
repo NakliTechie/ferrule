@@ -30,6 +30,7 @@ func cmdAdd(args []string) error {
 	// is piped — which is how a password manager hands one over.
 	detect := fs.Bool("detect", false, "scan localhost for running runtimes and adopt them")
 	insecure := fs.Bool("insecure", false, "acknowledge that this key will travel over http to a host that is not this machine")
+	testModel := fs.String("test-model", "", "the model to prove this source with, when your tier excludes the ones Ferrule would pick")
 	positional, err := parseWithSubject(fs, args)
 	if err != nil {
 		return err
@@ -103,7 +104,7 @@ func cmdAdd(args []string) error {
 	}
 	raw, err := bus.Dispatch(ctx, "add_source", api.Args{
 		"name": *name, "provider": pid, "base_url": *base, "key": k,
-		"allow_insecure": *insecure,
+		"allow_insecure": *insecure, "test_model": *testModel,
 	}, api.DoorCLI, "cli")
 	if err != nil {
 		return err

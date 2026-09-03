@@ -217,12 +217,14 @@ func (b *Bus) register() {
 			{Name: "base_url", Type: "string", Desc: "required for an unknown OpenAI-compatible endpoint"},
 			{Name: "key", Type: "string", Secret: true, Desc: "the provider key; withheld from staging and supplied by the person at apply time"},
 			{Name: "allow_insecure", Type: "boolean", Desc: "acknowledge that this key will travel over http to a host that is not this machine"},
+			{Name: "test_model", Type: "string", Desc: "the model to prove the source with, for an account whose tier excludes the ones Ferrule would pick"},
 		},
 		run: func(ctx context.Context, a *app.App, args Args) (any, error) {
 			r, err := a.Discovery.Add(ctx, discovery.AddRequest{
 				Name: args.Str("name"), Provider: args.Str("provider"),
 				BaseURL: args.Str("base_url"), Key: args.Str("key"),
 				AllowInsecure: args.Bool("allow_insecure"),
+				TestModel:     args.Str("test_model"),
 			})
 			if err != nil {
 				return nil, err

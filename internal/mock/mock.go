@@ -18,6 +18,12 @@ import (
 // byte, so a test can compare against it literally.
 const PredictionFixture = `{"id":"pred_harness_1","status":"succeeded","model":"black-forest-labs/flux-schnell","output":["https://example.invalid/out.webp"],"metrics":{"predict_time":1.25}}`
 
+// Refusal is an upstream saying no, in the shape a real provider says it.
+type Refusal struct {
+	Status int
+	Body   string
+}
+
 // Provider is a fake upstream.
 type Provider struct {
 	Server *httptest.Server
@@ -33,6 +39,14 @@ type Provider struct {
 	// BeforeRespond runs once the mock has the request and before it answers, so a test
 	// can observe Ferrule's state at the moment a request is in the air.
 	BeforeRespond func()
+	// RefuseChat, when set, answers inference for that model with this status and body.
+	// Set per model id, or under "" for every model. This is how the real refusals —
+	// DeepSeek's 402 and NVIDIA's per-model 404 — are replayed as fixtures.
+	//
+	// It covers embeddings as well as chat: a provider refusing a model refuses it, and
+	// a fixture that still served embeddings let a source pass a test its real
+	// counterpart would have failed.
+	RefuseChat map[string]Refusal
 	// Down makes the server refuse connections after Stop.
 	mu       sync.Mutex
 	requests []Request
@@ -98,8 +112,28 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/models" && r.Method == http.MethodGet:
 		p.writeModels(w)
 	case r.URL.Path == "/v1/chat/completions" && r.Method == http.MethodPost:
+		var req struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(body, &req)
+		if ref, ok := p.refusalFor(req.Model); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(ref.Status)
+			_, _ = w.Write([]byte(ref.Body))
+			return
+		}
 		p.writeChat(w, body)
 	case r.URL.Path == "/v1/embeddings" && r.Method == http.MethodPost:
+		var ereq struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(body, &ereq)
+		if ref, ok := p.refusalFor(ereq.Model); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(ref.Status)
+			_, _ = w.Write([]byte(ref.Body))
+			return
+		}
 		writeJSON(w, map[string]any{
 			"object": "list",
 			"data":   []any{map[string]any{"object": "embedding", "index": 0, "embedding": []float64{0.1, 0.2, 0.3}}},
@@ -123,6 +157,18 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, `{"error":{"message":"no route %s"}}`, r.URL.Path)
 	}
+}
+
+// refusalFor returns the configured refusal for a model, falling back to the wildcard.
+func (p *Provider) refusalFor(model string) (Refusal, bool) {
+	if p.RefuseChat == nil {
+		return Refusal{}, false
+	}
+	if ref, ok := p.RefuseChat[model]; ok {
+		return ref, true
+	}
+	ref, ok := p.RefuseChat[""]
+	return ref, ok
 }
 
 func (p *Provider) writeModels(w http.ResponseWriter) {

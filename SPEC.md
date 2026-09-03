@@ -35,7 +35,7 @@ exact next move. Nothing requires parsing prose.
 ```
 ok · unreachable · bad_key · bad_status · no_models · local_no_models
 test_failed · test_timeout · unknown_provider · needs_key · needs_base_url
-insecure_url · redirect · credential_in_url
+insecure_url · redirect · credential_in_url · no_balance · model_unavailable
 ```
 
 The vocabulary is an exhaustive switch in `internal/discovery/reason.go`, published in
