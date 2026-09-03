@@ -3,6 +3,8 @@
 > One local panel: every key held once, every model — local or cloud — visible,
 > switchable, and accountable for what leaves your machine.
 
+![Ferrule's board — every model, local and cloud, in one place](marketing/hero-x.png)
+
 Ferrule is a **local key vault first, a model router second**. You mint a provider key
 once, paste it into Ferrule, and Ferrule becomes the one encrypted local place that key
 lives. The unified OpenAI-compatible endpoint, the model board, the alias ladders, and
@@ -182,4 +184,10 @@ would make this a different product. No provider breadth for its own sake: a cur
 set, widened only when a real request arrives. No telemetry, ever. And Ferrule does not
 run models — llama.cpp, Ollama, and the providers do inference; Ferrule routes.
 
+## License
+
+MIT — see [LICENSE](LICENSE). The embedded typefaces (JetBrains Mono, IBM Plex Sans) are
+OFL 1.1; see [NOTICE](NOTICE).
+
 Vision, roadmap, and the full agent handoff: [FERRULE.md](FERRULE.md).
+The agent face, for a coding agent pointed at this repo: [llms.txt](llms.txt).

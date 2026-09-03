@@ -30,6 +30,7 @@ func Mount(mux *http.ServeMux, controlToken string) {
 	}
 	files := http.FileServer(http.FS(sub))
 
+	mux.HandleFunc("/llms.txt", serveLLMs)
 	mux.HandleFunc("/ui/strings.json", serveStrings)
 	mux.HandleFunc("/ui/providers.json", serveProviders)
 	mux.Handle("/ui/", cache(http.StripPrefix("/ui/", files)))
@@ -68,6 +69,17 @@ func cache(h http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		h.ServeHTTP(w, r)
 	})
+}
+
+//go:embed llms.txt
+var llms []byte
+
+// serveLLMs is the docs' agent face, served by the running daemon so an agent pointed at
+// a live Ferrule gets the surface without being pointed at the repo.
+func serveLLMs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(llms)
 }
 
 // serveStrings hands the panel the active locale's table. No user-facing copy is written

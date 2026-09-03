@@ -1,0 +1,24 @@
+Ferrule
+Copyright (c) 2026 Chirag Patnaik
+Licensed under the MIT License; see LICENSE.
+
+This binary embeds two typefaces, both under the SIL Open Font License 1.1.
+They are embedded rather than fetched from a CDN so that a tool whose claim is
+"nothing leaves your machine" does not make a network request to render itself.
+
+  JetBrains Mono
+    Copyright 2020 The JetBrains Mono Project Authors
+    https://github.com/JetBrains/JetBrainsMono
+    License: internal/ui/assets/fonts/JetBrainsMono-OFL.txt
+
+  IBM Plex Sans
+    Copyright 2017 IBM Corp.
+    https://github.com/IBM/plex
+    License: internal/ui/assets/fonts/IBMPlexSans-OFL.txt
+
+Go module dependencies carry their own licenses; see go.mod and the module cache.
+The direct ones are:
+
+  filippo.io/age        BSD-3-Clause
+  golang.org/x/term     BSD-3-Clause
+  modernc.org/sqlite    BSD-3-Clause

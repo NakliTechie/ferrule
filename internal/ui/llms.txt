@@ -1,0 +1,124 @@
+# Ferrule
+
+> A local key vault for LLM provider keys, with an OpenAI-compatible router in front of
+> it. One Go binary. Keys are encrypted on the user's own disk; nothing is hosted.
+
+Ferrule is a **key vault first, a router second**. A person pastes a provider key once;
+Ferrule becomes the single encrypted local home for it. The unified endpoint, the model
+board, the alias ladders, and the spend/egress views all fall out of that.
+
+If you are an agent driving Ferrule, read this file and then call `brief`. Do not explore.
+
+## Two things it does that alternatives do not
+
+- **Zero-config discovery.** No config file. It scans localhost for running runtimes
+  (Ollama, LM Studio, llama.cpp) and adopts them; a cloud provider is *paste a key*.
+- **Egress visibility.** A local, metadata-only ledger of what actually left the machine,
+  per app and per model — classified from the address the connection was made to.
+
+## The three faces (they do not overlap)
+
+| Face | Path | Auth |
+|---|---|---|
+| Inference — raw tokens | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models` | Ferrule app token, Bearer |
+| Inference — media passthrough | `/p/<source>/…`, provider's native shape, bytes unaltered | Ferrule app token |
+| Control | `/api/op/<name>`, `/mcp` | localhost + a per-run control token |
+
+The control face is **not** an inference path. Your own inference goes through the
+OpenAI-compatible endpoint like any other client.
+
+## Driving inference
+
+```
+OPENAI_BASE_URL=http://localhost:8899/v1
+OPENAI_API_KEY=frl_…        # a Ferrule app token, never a provider key
+```
+
+The `model` field resolves in this order, first hit wins:
+
+1. an **alias** (`fast`, `smart`, `cheap`, `local`) → its ordered ladder, dark rungs skipped
+2. a **remap** → an alias, or `source/model`
+3. `source/model` → that exact pair (source id or display name)
+4. a bare **model id** → the first live source serving it, local preferred
+
+An alias that exists but has no reachable rung is an **error**, never a fall-through to a
+same-named model elsewhere. A rung that fails with a transport error, 5xx, or 429 falls
+to the next; a 4xx does not.
+
+## Driving the control plane (MCP)
+
+`GET /mcp` returns the tool manifest. `POST /mcp` speaks JSON-RPC: `initialize`,
+`tools/list`, `tools/call`. The manifest is generated from the same command bus the panel
+and the CLI dispatch through, so it is always a superset of what the UI can do.
+
+**Read ops** answer immediately: `brief`, `status`, `list_sources`, `list_models`,
+`list_aliases`, `get_alias`, `list_remaps`, `usage_summary`, `egress_summary`,
+`list_grants`, `list_staged`.
+
+**Mutating ops stage; they never land on their own.** `add_source`, `refresh_source`,
+`remove_source`, `detect_local`, `set_alias`, `remove_alias`, `set_remap`,
+`remove_remap`, `revoke_grant`, `set_setting`, `catalog_refresh`. A staged op returns an
+id; a person applies it. Do not wait on one landing.
+
+**Person-only ops are refused at your door and are marked so in the manifest**, not
+hidden from it: `mint_grant`, `export_config`, `import_config`, `read_content`,
+`forget_content`. A provider key is stripped from any staged payload — including from
+undeclared fields and from a URL's query string — and supplied by the person at apply
+time.
+
+### `brief` — call this first
+
+One bounded read of the whole situation: every source with `status`, `code`, `reason`,
+`remedy`; a *summary* of servable models by capability and location; aliases with the
+rung actually serving each; grant counts; staged ops; 24h egress; the last five failures;
+the last five control calls; the closed reason vocabulary; and the short list of moves
+that would change any of it. It grows with configured sources and aliases — never with
+the model catalog, the ledger, or the control log.
+
+Useful shape: `list_models {where: "local"|"cloud", capability: "chat"|"vision"|…,
+max_cost: <USD per Mtok>}` answers "cheapest model with vision" directly.
+
+## The reason vocabulary (closed — branch on the code, never parse the message)
+
+```
+ok · unreachable · bad_key · bad_status · no_models · local_no_models
+test_failed · test_timeout · unknown_provider · needs_key · needs_base_url
+insecure_url · redirect
+```
+
+Every non-`ok` code carries a `remedy` naming the exact next move. The live list is
+published in `brief.reason_codes`.
+
+## CLI
+
+`ferrule status [--json]` · `serve` · `add [provider]` · `ls sources|models|aliases` ·
+`alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
+`version`
+
+Exit codes map one-to-one to next actions: **0** worked · **1** did not, and the reason
+says why · **2** the invocation was wrong.
+
+Keys are never accepted as flags — they are read from the terminal without echo, or from
+stdin when piped.
+
+## Constraints worth knowing before you act
+
+- **Localhost only** by default. The control plane needs a per-run token the daemon hands
+  only to the page it serves; a cross-origin caller cannot obtain it.
+- **A key never travels over http** to anything but loopback unless explicitly
+  acknowledged, and no client follows a redirect while carrying one.
+- **Ferrule does not run models.** llama.cpp, Ollama, and the providers do inference.
+- **Media is not normalized.** Prediction-based providers ride the passthrough lane in
+  their own shape; do not expect Replicate at `/v1`.
+- **Content logging is off by default**, stored apart from the metadata ledger, and
+  person-only to read.
+- The one request Ferrule makes on its own behalf is a background fetch of the public
+  model-capability catalog. It carries nothing about the user and can be turned off.
+
+## Source
+
+- `SPEC.md` — the built system's contract; §0 is the agent contract, and each clause
+  names the test that fails if it stops holding.
+- `FERRULE.md` — vision, roadmap, and the original handoff.
+- `README.md` — the human face.
+- `make demo` — a whole Ferrule with fake providers, no keys needed.

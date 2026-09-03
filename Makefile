@@ -3,13 +3,19 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run demo
+.PHONY: build check test vet fmt dist clean run demo sync-llms
 
-build:
+build: sync-llms
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
 
+# llms.txt lives at the repo root for anyone reading the repository, and is embedded so a
+# running daemon can serve it at /llms.txt. go:embed cannot reach above its own directory,
+# so the copy is made here and a test fails if the two ever drift.
+sync-llms:
+	@cp llms.txt internal/ui/llms.txt
+
 # The gate. `done` is this command's word, not a self-report.
-check: fmt vet test
+check: sync-llms fmt vet test
 
 fmt:
 	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "gofmt found unformatted files"; exit 1)
@@ -32,7 +38,7 @@ demo:
 	go run ./cmd/ferrule-demo
 
 # One statically-linked binary per target, no cgo, no runtime dependencies.
-dist:
+dist: sync-llms
 	@rm -rf dist && mkdir -p dist
 	@for t in $(TARGETS); do \
 	  os=$${t%/*}; arch=$${t#*/}; ext=""; [ "$$os" = windows ] && ext=".exe"; \

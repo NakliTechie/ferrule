@@ -32,15 +32,16 @@ func main() {
 	dir := flag.String("dir", "", "config directory (default: a fresh temp dir)")
 	port := flag.Int("port", 8877, "port for the demo daemon")
 	traffic := flag.Int("traffic", 120, "synthetic requests to replay, so Usage has something to show")
+	clean := flag.Bool("clean", false, "omit the deliberately-failing source (for screenshots)")
 	flag.Parse()
 
-	if err := run(*dir, *port, *traffic); err != nil {
+	if err := run(*dir, *port, *traffic, *clean); err != nil {
 		fmt.Fprintln(os.Stderr, "ferrule-demo:", err)
 		os.Exit(1)
 	}
 }
 
-func run(dir string, port, traffic int) error {
+func run(dir string, port, traffic int, clean bool) error {
 	if dir == "" {
 		var err error
 		if dir, err = os.MkdirTemp("", "ferrule-demo-"); err != nil {
@@ -97,11 +98,14 @@ func run(dir string, port, traffic int) error {
 			return err
 		}
 	}
-	// One source that cannot work, so the loud-failure path is on screen too.
-	if _, err := a.Discovery.Add(ctx, discovery.AddRequest{
-		Name: "groq-typo", Provider: "groq", BaseURL: "http://127.0.0.1:1/v1", Key: "gsk_wrong",
-	}); err != nil {
-		return err
+	// One source that cannot work, so the loud-failure path is on screen too. Omitted
+	// with -clean, which is what a hero screenshot wants.
+	if !clean {
+		if _, err := a.Discovery.Add(ctx, discovery.AddRequest{
+			Name: "groq-typo", Provider: "groq", BaseURL: "http://127.0.0.1:1/v1", Key: "gsk_wrong",
+		}); err != nil {
+			return err
+		}
 	}
 
 	src := map[string]string{}
