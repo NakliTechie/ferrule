@@ -5,10 +5,13 @@ Thumbs.db
 # Planning (local only)
 plan/
 
-# Build output
+# Build output — every binary this repo can produce, by name. `/ferrule` alone let a
+# 16 MB `ferrule-demo` get swept in by `git add -A`.
 /ferrule
+/ferrule-demo
 /dist/
 *.test
+*.exe
 
 # Local state
 *.db
