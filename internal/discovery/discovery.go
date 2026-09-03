@@ -254,7 +254,7 @@ func (e *Engine) classify(ctx context.Context, spec provider.Spec, src store.Sou
 			SourceID: src.ID, ModelID: lm.ID, DisplayName: lm.Display,
 			ContextLength: lm.Context,
 		}
-		if ent, ok := e.cat.Lookup(lm.ID); ok {
+		if ent, ok := e.cat.Lookup(src.Provider, lm.ID); ok {
 			m.Capabilities = ent.Capabilities
 			m.Modalities = ent.Modalities
 			m.Async = ent.Async

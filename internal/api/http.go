@@ -130,8 +130,19 @@ func (s *API) handleStaged(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "apply":
 		extra := Args{}
-		if raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20)); len(strings.TrimSpace(string(raw))) > 0 {
-			_ = json.Unmarshal(raw, &extra)
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		if len(strings.TrimSpace(string(raw))) > 0 {
+			// Not swallowed: this body carries the secret a staged operation was denied,
+			// so garbling it must not quietly apply the operation without one.
+			if err := json.Unmarshal(raw, &extra); err != nil {
+				writeJSON(w, http.StatusBadRequest,
+					map[string]any{"error": "arguments are not JSON: " + err.Error()})
+				return
+			}
 		}
 		res, err := s.bus.Apply(r.Context(), id, extra, DoorUI, callerOf(r))
 		if err != nil {

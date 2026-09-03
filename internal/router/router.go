@@ -132,11 +132,29 @@ func (r *Router) listModels(w http.ResponseWriter, req *http.Request, _ store.Gr
 			},
 		})
 	}
+	// Only aliases this endpoint can actually serve. Advertising one whose every rung is
+	// dark, or one pointing at the media lane, hands a client a name that is guaranteed
+	// to fail the moment it is chosen — and a model picker is a promise.
 	aliases, _ := r.db.Aliases()
 	for _, a := range aliases {
+		targets, err := r.Resolve(a.Name)
+		if err != nil || len(targets) == 0 {
+			continue
+		}
+		servable := false
+		for _, t := range targets {
+			if t.Source.Lane == store.LaneTokens {
+				servable = true
+				break
+			}
+		}
+		if !servable {
+			continue
+		}
 		data = append(data, map[string]any{
 			"id": a.Name, "object": "model", "owned_by": "ferrule",
-			"ferrule": map[string]any{"alias": true, "rungs": len(a.Rungs)},
+			"ferrule": map[string]any{"alias": true, "rungs": len(a.Rungs),
+				"serving": targets[0].Source.Name + "/" + targets[0].Model.ModelID},
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
@@ -440,7 +458,9 @@ func pipeStream(w http.ResponseWriter, body io.Reader, keep bool) (int, usageCou
 }
 
 func copyHeaders(w http.ResponseWriter, resp *http.Response) {
-	for _, h := range []string{"Content-Type", "Cache-Control", "Connection"} {
+	// Connection is hop-by-hop and so is everything it names; relaying either lets
+	// connection-scoped metadata cross a proxy boundary it was never meant to.
+	for _, h := range []string{"Content-Type", "Cache-Control"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}

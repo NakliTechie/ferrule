@@ -351,3 +351,58 @@ func TestAnUnreadableStoreRefusesRatherThanGuesses(t *testing.T) {
 		t.Fatalf("a prompt reached a source the person never pointed at: %+v", after)
 	}
 }
+
+// A model picker is a promise. Advertising an alias whose every rung is dark, or one
+// pointing at the media lane this endpoint cannot serve, hands a client a name that is
+// guaranteed to fail the moment it is chosen.
+func TestModelListingOmitsAliasesItCannotServe(t *testing.T) {
+	r := newRig(t)
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	live := r.addLocal(t, "ollama", up)
+
+	dead := mock.New("", "gone:7b")
+	deadSrc := r.addSource(t, "lmstudio", "lmstudio", "", dead)
+	dead.Close()
+	if err := r.app.DB.SetSourceStatus(deadSrc.ID, store.StatusFailed,
+		"unreachable", "the runtime stopped", "start it again"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, al := range []struct{ name, target string }{
+		{"servable", live.ID + "/qwen3:8b"},
+		{"all-dark", deadSrc.ID + "/gone:7b"},
+	} {
+		if _, err := r.bus.Dispatch(context.Background(), "set_alias",
+			api.Args{"name": al.name, "ladder": []any{al.target}}, api.DoorCLI, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tok := r.mint(t, "picker")
+	req, _ := http.NewRequest(http.MethodGet, r.srv.URL+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var doc struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, d := range doc.Data {
+		ids[d.ID] = true
+	}
+	if !ids["servable"] {
+		t.Error("a servable alias was omitted")
+	}
+	if ids["all-dark"] {
+		t.Error("an alias with no reachable rung was advertised")
+	}
+}

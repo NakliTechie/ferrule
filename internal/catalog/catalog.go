@@ -31,7 +31,12 @@ const RefreshAfter = 24 * time.Hour
 // Entry is one catalog record. Match is a case-insensitive substring of a model id;
 // the longest match wins so specific ids beat family prefixes.
 type Entry struct {
-	Match        string   `json:"match"`
+	Match string `json:"match"`
+	// Provider scopes an entry. Two providers can serve different things under the same
+	// model id — the same name, different context window, very different price — so an
+	// entry without a provider can only ever be a family fallback, never an authority.
+	// The bundled snapshot is all fallbacks; the remote source is provider-scoped.
+	Provider     string   `json:"provider,omitempty"`
 	Capabilities []string `json:"capabilities"`
 	Modalities   []string `json:"modalities,omitempty"`
 	Context      int      `json:"context"`
@@ -92,8 +97,19 @@ func (c *Catalog) loadCache() {
 }
 
 func (c *Catalog) set(s snapshot) {
-	sort.SliceStable(s.Entries, func(i, j int) bool {
-		return len(s.Entries[i].Match) > len(s.Entries[j].Match)
+	// Deterministic order, all the way down. Longest match first so a specific id beats a
+	// family prefix; then provider, then the match itself, so two entries of equal length
+	// never depend on map iteration order — which is how the same model came back with a
+	// different price on different runs.
+	sort.Slice(s.Entries, func(i, j int) bool {
+		a, b := s.Entries[i], s.Entries[j]
+		if len(a.Match) != len(b.Match) {
+			return len(a.Match) > len(b.Match)
+		}
+		if a.Provider != b.Provider {
+			return a.Provider < b.Provider
+		}
+		return a.Match < b.Match
 	})
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,21 +136,37 @@ func (c *Catalog) Stale() bool {
 	return time.Since(c.fetchedAt) > RefreshAfter
 }
 
-// Lookup returns the best entry for a model id, and whether one was found.
-func (c *Catalog) Lookup(modelID string) (Entry, bool) {
+// Lookup returns the best entry for a model id served by a provider.
+//
+// A provider-scoped entry always wins over an unscoped one, because the same id can mean
+// different things at different providers and guessing between them silently misprices
+// the cost view. An empty provider — a local runtime, a generic OpenAI-compatible
+// endpoint — falls through to the unscoped family entries, which is all the bundled
+// snapshot has and all that can honestly be said about an id nobody has claimed.
+func (c *Catalog) Lookup(provider, modelID string) (Entry, bool) {
 	id := strings.ToLower(modelID)
-	// Strip an owner prefix ("anthropic/claude-…", "library/qwen3:8b") and a tag.
+	// Strip an owner prefix ("anthropic/claude-…", "library/qwen3:8b").
 	if i := strings.LastIndex(id, "/"); i >= 0 {
 		id = id[i+1:]
 	}
+	p := strings.ToLower(provider)
+
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	var fallback Entry
+	var haveFallback bool
 	for _, e := range c.entries {
-		if strings.Contains(id, strings.ToLower(e.Match)) {
+		if !strings.Contains(id, strings.ToLower(e.Match)) {
+			continue
+		}
+		if e.Provider != "" && strings.EqualFold(e.Provider, p) {
 			return e, true
 		}
+		if e.Provider == "" && !haveFallback {
+			fallback, haveFallback = e, true
+		}
 	}
-	return Entry{}, false
+	return fallback, haveFallback
 }
 
 // Refresh fetches the remote source and replaces the cache. Safe to call in a goroutine;
@@ -161,26 +193,58 @@ func (c *Catalog) Refresh() error {
 	if err != nil || len(entries) == 0 {
 		return err
 	}
-	// The bundled entries stay as the tail so family fallbacks survive a thin remote.
-	c.mu.RLock()
-	tail := append([]Entry(nil), c.entries...)
-	c.mu.RUnlock()
+	// Rebuilt from the immutable bundled set every time, never from whatever is in memory
+	// now. Appending to the current catalog meant the previous refresh's remote entries
+	// became the next refresh's tail, so a daemon left running for a week accumulated a
+	// copy of models.dev per refresh — unbounded, and slower to search each time.
 	s := snapshot{
 		SnapshotDate: time.Now().Format("2006-01-02"),
 		Source:       c.remote,
 		FetchedAt:    time.Now().UnixMilli(),
-		Entries:      append(entries, tail...),
+		Entries:      dedupe(append(entries, bundledEntries()...)),
 	}
-	c.set(s)
 	out, err := json.Marshal(s)
 	if err != nil {
 		return err
 	}
+	// Disk first, then memory. Publishing in memory before the cache is written means a
+	// disk failure leaves the running daemon and its cache disagreeing about prices, and
+	// the disagreement survives until someone restarts.
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.path)
+	if err := os.Rename(tmp, c.path); err != nil {
+		return err
+	}
+	c.set(s)
+	return nil
+}
+
+// bundledEntries returns a fresh copy of the compiled-in snapshot. It is the fixed floor
+// every refresh builds on, so refreshes cannot compound.
+func bundledEntries() []Entry {
+	var s snapshot
+	if err := json.Unmarshal(bundled, &s); err != nil {
+		return nil
+	}
+	return s.Entries
+}
+
+// dedupe keeps the first entry for each provider+match pair. The remote set comes first,
+// so a provider-scoped entry survives and the bundled family fallback behind it does too.
+func dedupe(in []Entry) []Entry {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, e := range in {
+		k := strings.ToLower(e.Provider) + "\x00" + strings.ToLower(e.Match)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, e)
+	}
+	return out
 }
 
 // parseModelsDev converts models.dev's provider→model map into catalog entries.
@@ -210,13 +274,14 @@ func parseModelsDev(raw []byte) ([]Entry, error) {
 		return nil, err
 	}
 	var out []Entry
-	for _, p := range doc {
+	for providerID, p := range doc {
 		for id, m := range p.Models {
 			if id == "" {
 				continue
 			}
 			e := Entry{
 				Match:      id,
+				Provider:   providerID,
 				Context:    m.Limit.Context,
 				InCost:     m.Cost.Input,
 				OutCost:    m.Cost.Output,

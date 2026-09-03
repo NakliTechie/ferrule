@@ -365,3 +365,47 @@ func TestCredentialsCannotRideInABaseURL(t *testing.T) {
 		t.Fatalf("%d source(s) persisted from a refused add", len(srcs))
 	}
 }
+
+// Two runtimes of the same kind on different ports are two sources. Naming both after the
+// provider meant the second silently replaced the first, and which one survived depended
+// on which goroutine finished first.
+func TestTwoRuntimesOfOneKindDoNotCollide(t *testing.T) {
+	a := newApp(t)
+	first := mock.New("", "qwen3:8b")
+	defer first.Close()
+	second := mock.New("", "gemma3:12b")
+	defer second.Close()
+	a.Discovery.SetDetectURLs("llamacpp", []string{first.BaseURL(), second.BaseURL()})
+	a.Discovery.SetDetectURLs("ollama", nil)
+	a.Discovery.SetDetectURLs("lmstudio", nil)
+
+	res, err := a.Discovery.Detect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("detected %d sources from two runtimes, want 2", len(res))
+	}
+	srcs, err := a.DB.Sources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 2 {
+		t.Fatalf("%d source(s) persisted; the second overwrote the first", len(srcs))
+	}
+	names := map[string]bool{}
+	for _, s := range srcs {
+		if names[s.Name] {
+			t.Errorf("two sources share the name %q", s.Name)
+		}
+		names[s.Name] = true
+	}
+	// Both runtimes' models are reachable.
+	models, err := a.DB.Models("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Errorf("%d models across two runtimes, want 2", len(models))
+	}
+}

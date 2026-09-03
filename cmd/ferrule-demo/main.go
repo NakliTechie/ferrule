@@ -116,17 +116,33 @@ func run(dir string, port, traffic int, clean bool) error {
 	for _, s := range sources {
 		src[s.Name] = s.ID
 	}
+	// Ladders are built only from sources that actually exist. A host with no
+	// non-loopback interface has no cloud fakes, and naming one anyway produced an alias
+	// that could never serve.
+	rung := func(source, model string) []any {
+		if id, ok := src[source]; ok {
+			return []any{id + "/" + model}
+		}
+		return nil
+	}
 	for _, al := range []struct {
-		name   string
-		ladder []any
+		name  string
+		rungs [][]any
 	}{
-		{"fast", []any{src["ollama"] + "/qwen3:8b", src["groq"] + "/llama-3.3-70b-versatile"}},
-		{"smart", []any{src["anthropic"] + "/claude-opus-5", src["deepseek"] + "/deepseek-reasoner"}},
-		{"cheap", []any{src["ollama"] + "/gemma3:12b", src["deepseek"] + "/deepseek-chat"}},
-		{"vision", []any{src["ollama"] + "/llava:13b", src["anthropic"] + "/claude-sonnet-5"}},
+		{"fast", [][]any{rung("ollama", "qwen3:8b"), rung("groq", "llama-3.3-70b-versatile")}},
+		{"smart", [][]any{rung("anthropic", "claude-opus-5"), rung("deepseek", "deepseek-reasoner")}},
+		{"cheap", [][]any{rung("ollama", "gemma3:12b"), rung("deepseek", "deepseek-chat")}},
+		{"vision", [][]any{rung("ollama", "llava:13b"), rung("anthropic", "claude-sonnet-5")}},
 	} {
+		var ladder []any
+		for _, r := range al.rungs {
+			ladder = append(ladder, r...)
+		}
+		if len(ladder) == 0 {
+			continue
+		}
 		if _, err := bus.Dispatch(ctx, "set_alias",
-			api.Args{"name": al.name, "ladder": al.ladder}, api.DoorCLI, "demo"); err != nil {
+			api.Args{"name": al.name, "ladder": ladder}, api.DoorCLI, "demo"); err != nil {
 			return err
 		}
 	}
@@ -155,7 +171,11 @@ func run(dir string, port, traffic int, clean bool) error {
 
 	if traffic > 0 {
 		fmt.Printf("replaying %d requests so Usage and Egress have something to show…\n", traffic)
-		replay(base, tokens, traffic)
+		ok, failed := replay(base, tokens, traffic)
+		if failed > 0 {
+			// Say so rather than letting a short run look like a full one.
+			fmt.Printf("  %d succeeded, %d failed\n", ok, failed)
+		}
 	}
 
 	fmt.Println()
@@ -208,7 +228,7 @@ func offMachine(key string, models ...string) *mock.Provider {
 
 // replay drives real requests through the real router, so the ledger it fills is the
 // ledger the product writes — not fixture rows inserted behind its back.
-func replay(base string, tokens map[string]string, n int) {
+func replay(base string, tokens map[string]string, n int) (ok, failed int) {
 	type call struct{ app, model string }
 	plan := []call{
 		{"zed", "fast"}, {"zed", "fast"}, {"zed", "smart"},
@@ -227,8 +247,16 @@ func replay(base string, tokens map[string]string, n int) {
 		req.Header.Set("Authorization", "Bearer "+tokens[c.app])
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
-		if err == nil {
-			resp.Body.Close()
+		if err != nil {
+			failed++
+			continue
 		}
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			failed++
+			continue
+		}
+		ok++
 	}
+	return ok, failed
 }

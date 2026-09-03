@@ -88,9 +88,16 @@ func cmdAdd(args []string) error {
 		// while the contract said 2.
 		return discovery.UnknownProvider(pid)
 	}
+	// Prompt whenever a key is *possible*, not only where one is mandatory. Plenty of
+	// self-hosted OpenAI-compatible servers want a key; refusing to ask left them
+	// unaddable through this door with no explanation. An empty answer means no key.
 	k := ""
-	if spec.NeedsKey {
-		if k, err = promptSecret(fmt.Sprintf("%s key (%s): ", spec.Label, spec.KeyHint)); err != nil {
+	if spec.NeedsKey || spec.Kind == store.KindCloud {
+		prompt := fmt.Sprintf("%s key (%s): ", spec.Label, spec.KeyHint)
+		if !spec.NeedsKey {
+			prompt = fmt.Sprintf("%s key (%s, blank for none): ", spec.Label, spec.KeyHint)
+		}
+		if k, err = promptSecret(prompt); err != nil {
 			return err
 		}
 	}

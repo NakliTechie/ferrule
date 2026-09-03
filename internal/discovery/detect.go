@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"sync"
 	"time"
 
@@ -72,14 +73,29 @@ func (e *Engine) Detect(ctx context.Context) ([]Result, error) {
 		}
 	}
 	wg.Wait()
+	// Deterministic order, so which runtime is adopted first does not depend on which
+	// goroutine finished first.
+	sort.Slice(hits, func(i, j int) bool { return hits[i].url < hits[j].url })
 
 	if len(hits) > 0 {
 		e.step("detect", "", i18n.T("step.detected", len(hits)))
 	}
+	// Two llama.cpp servers on different ports are two sources, not one. Naming both
+	// after the provider meant the second silently replaced the first — and which one
+	// survived depended on goroutine scheduling.
+	perProvider := map[string]int{}
+	for _, h := range hits {
+		perProvider[h.spec.ID]++
+	}
+
 	var out []Result
 	for _, h := range hits {
+		name := h.spec.ID
+		if perProvider[h.spec.ID] > 1 {
+			name = h.spec.ID + "-" + portOf(h.url)
+		}
 		// A detected runtime keeps the source it already has; re-detection refreshes it.
-		if existing, err := e.db.SourceByName(h.spec.ID); err == nil && existing.BaseURL == h.url {
+		if existing, err := e.db.SourceByName(name); err == nil && existing.BaseURL == h.url {
 			r, err := e.Refresh(ctx, existing.ID)
 			if err != nil {
 				continue
@@ -88,7 +104,7 @@ func (e *Engine) Detect(ctx context.Context) ([]Result, error) {
 			continue
 		}
 		r, err := e.Add(ctx, AddRequest{
-			Name: h.spec.ID, Provider: h.spec.ID, BaseURL: h.url, Detected: true,
+			Name: name, Provider: h.spec.ID, BaseURL: h.url, Detected: true,
 		})
 		if err != nil {
 			continue
@@ -96,6 +112,16 @@ func (e *Engine) Detect(ctx context.Context) ([]Result, error) {
 		out = append(out, e.softenEmpty(h.spec, r))
 	}
 	return out, nil
+}
+
+// portOf distinguishes two runtimes of the same kind. The port is what the person would
+// use to tell them apart themselves.
+func portOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Port() == "" {
+		return "alt"
+	}
+	return u.Port()
 }
 
 // listening reports whether anything holds the port. A closed port answers in about two

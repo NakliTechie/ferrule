@@ -10,7 +10,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"ferrule/internal/i18n"
@@ -120,8 +122,9 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	// Every header the caller sent is relayed verbatim, except the hop-by-hop set and the
 	// Ferrule app token, which is replaced by the provider key. Nothing else is touched:
 	// that byte-identity is the promise of this lane.
+	named := namedByConnection(r.Header)
 	for k, vs := range r.Header {
-		if hopByHop[http.CanonicalHeaderKey(k)] {
+		if hopByHop[http.CanonicalHeaderKey(k)] || named[http.CanonicalHeaderKey(k)] {
 			continue
 		}
 		if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "X-Api-Key") {
@@ -134,6 +137,23 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	upReq.Header.Del("Accept-Encoding")
 	spec.Authorize(upReq, key)
 	upReq.ContentLength = r.ContentLength
+
+	// Count what is actually sent. ContentLength is -1 for a chunked body, which was
+	// being recorded as zero bytes — a silent hole in the one view that is supposed to
+	// account for everything that left.
+	counted := &countingReader{r: r.Body}
+	upReq.Body = io.NopCloser(counted)
+
+	// And classify egress from the address the connection was really made to, not from
+	// the URL configured. A name can resolve differently between the two.
+	var dialed atomic.Value
+	upReq = upReq.WithContext(httptrace.WithClientTrace(upReq.Context(), &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn != nil {
+				dialed.Store(router.Peer(info.Conn.RemoteAddr()))
+			}
+		},
+	}))
 
 	entry := store.Entry{
 		GrantID: g.ID, App: g.App, SourceID: src.ID, Provider: src.Provider,
@@ -150,6 +170,10 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	resp, err := h.client.Do(upReq)
+	if actual, ok := dialed.Load().(string); ok && actual != "" {
+		entry.Egress = actual
+	}
+	entry.ReqBytes = counted.n
 	if err != nil {
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", src.Name, err.Error())
@@ -159,8 +183,9 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	respNamed := namedByConnection(resp.Header)
 	for k, vs := range resp.Header {
-		if hopByHop[http.CanonicalHeaderKey(k)] {
+		if hopByHop[http.CanonicalHeaderKey(k)] || respNamed[http.CanonicalHeaderKey(k)] {
 			continue
 		}
 		for _, v := range vs {
@@ -171,7 +196,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	n, copyErr := io.Copy(flushWriter{w}, resp.Body)
 
 	entry.LatencyMS = int(time.Since(start).Milliseconds())
-	entry.Status, entry.RespBytes = resp.StatusCode, int(n)
+	entry.Status, entry.RespBytes, entry.ReqBytes = resp.StatusCode, int(n), counted.n
 	if resp.StatusCode >= 400 {
 		entry.Err = i18n.T("reason.bad_status", resp.StatusCode, "")
 	}
@@ -190,6 +215,34 @@ func (h *Handler) complete(id int64, e store.Entry) {
 	if err := h.db.Complete(id, e); err != nil {
 		log.Printf("ferrule: ledger row %d left in-flight: %v", id, err)
 	}
+}
+
+// countingReader records how many bytes actually went upstream, for a body whose length
+// the caller never declared.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
+// namedByConnection returns the headers a Connection header declares hop-by-hop. RFC 9110
+// makes those connection-scoped too, and a proxy that relays them leaks one hop's
+// negotiation into the next.
+func namedByConnection(h http.Header) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range h.Values("Connection") {
+		for _, tok := range strings.Split(v, ",") {
+			if tok = strings.TrimSpace(tok); tok != "" {
+				out[http.CanonicalHeaderKey(tok)] = true
+			}
+		}
+	}
+	return out
 }
 
 // flushWriter pushes each chunk out as it arrives so a streaming provider stays streaming.

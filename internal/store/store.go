@@ -351,8 +351,19 @@ WHERE m.model_id = ? AND s.status = 'live'`, modelID)
 	if len(found) == 0 {
 		return Model{}, Source{}, ErrNotFound
 	}
-	sort.SliceStable(found, func(i, j int) bool {
-		return found[i].s.Kind == KindLocal && found[j].s.Kind != KindLocal
+	// Local first, then oldest source, then name. Without the last two, two cloud sources
+	// serving the same id are separated by SQLite row order — so the same request picks a
+	// different provider on a different machine, or after a migration, and the person is
+	// never told which one answered.
+	sort.Slice(found, func(i, j int) bool {
+		a, b := found[i].s, found[j].s
+		if (a.Kind == KindLocal) != (b.Kind == KindLocal) {
+			return a.Kind == KindLocal
+		}
+		if a.CreatedAt != b.CreatedAt {
+			return a.CreatedAt < b.CreatedAt
+		}
+		return a.Name < b.Name
 	})
 	return found[0].m, found[0].s, nil
 }
