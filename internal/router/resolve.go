@@ -29,45 +29,88 @@ func (r *Router) Resolve(name string) ([]Target, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s", i18n.T("route.unknownModel", name))
 	}
-	// An alias that exists but has no reachable rung is an error, not an absence.
+	// Two things must not be confused here, and confusing them is how a prompt ends up
+	// somewhere it was never pointed.
 	//
-	// Falling through to the next resolution step here would be the worst kind of
-	// helpful: a person points `local` at their own machine, the runtime goes down, and
-	// Ferrule quietly finds a cloud model with the same name and sends the prompt there.
-	// The whole product is a claim about where prompts go; guessing is not available.
+	// "There is no alias by that name" means: keep looking. "I could not read the alias
+	// table" means: stop. A storage fault that reads as an absence walks straight past
+	// the person's routing and lands on a bare model id that happens to match — which is
+	// the exhausted-alias bug again, arriving through a different door. Ferrule's whole
+	// claim is about where prompts go, so an unreadable database is a refusal, never a
+	// guess.
+	//
+	// Only store.ErrNotFound advances the search. Everything else returns.
 	if _, err := r.db.Alias(name); err == nil {
 		return r.fromAlias(name, "alias")
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, unreadable(name, err)
 	}
-	if rm, err := r.db.Remap(name); err == nil {
-		if _, err := r.db.Alias(rm.Target); err == nil {
+
+	rm, err := r.db.Remap(name)
+	if err == nil {
+		if _, aerr := r.db.Alias(rm.Target); aerr == nil {
 			return r.fromAlias(rm.Target, "remap→alias")
+		} else if !errors.Is(aerr, store.ErrNotFound) {
+			return nil, unreadable(name, aerr)
 		}
 		if sid, mid, ok := store.SplitTarget(rm.Target); ok {
-			t, err := r.direct(sid, mid, "remap")
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", i18n.T("route.remapDark", name, rm.Target), err)
+			t, derr := r.direct(sid, mid, "remap")
+			if derr != nil {
+				return nil, fmt.Errorf("%s: %w", i18n.T("route.remapDark", name, rm.Target), derr)
 			}
 			return []Target{t}, nil
 		}
 		return nil, fmt.Errorf("%s", i18n.T("route.remapDark", name, rm.Target))
 	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, unreadable(name, err)
+	}
+
 	if sid, mid, ok := store.SplitTarget(name); ok {
 		// Accept both the source id and its display name on the left of the slash.
-		if t, err := r.direct(sid, mid, "explicit"); err == nil {
+		t, derr := r.direct(sid, mid, "explicit")
+		if derr == nil {
 			return []Target{t}, nil
 		}
-		if s, err := r.db.SourceByName(sid); err == nil {
-			if t, err := r.direct(s.ID, mid, "explicit"); err == nil {
+		if !errors.Is(derr, store.ErrNotFound) && !errors.Is(derr, ErrSourceDark) {
+			return nil, unreadable(name, derr)
+		}
+		s, serr := r.db.SourceByName(sid)
+		if serr == nil {
+			t, derr := r.direct(s.ID, mid, "explicit")
+			if derr == nil {
 				return []Target{t}, nil
 			}
+			return nil, fmt.Errorf("%s: %w", i18n.T("route.unknownModel", name), derr)
+		}
+		if !errors.Is(serr, store.ErrNotFound) {
+			return nil, unreadable(name, serr)
 		}
 	}
+
 	m, s, err := r.db.FindModel(name)
 	if err == nil {
 		return []Target{{Source: s, Model: m, Via: "model"}}, nil
 	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, unreadable(name, err)
+	}
 	return nil, fmt.Errorf("%s: %w", i18n.T("route.unknownModel", name), ErrNoRoute)
 }
+
+// ErrUnreadable means routing could not be decided because the store could not be read.
+// It is deliberately distinct from ErrNoRoute: one says "you asked for something that
+// does not exist", the other says "I cannot tell, so I will not send this anywhere".
+var ErrUnreadable = errors.New("router: routing table unreadable")
+
+func unreadable(name string, err error) error {
+	return fmt.Errorf("%s: %w: %v", i18n.T("route.unreadable", name), ErrUnreadable, err)
+}
+
+// ErrSourceDark means the source exists and is not live. It is a legitimate reason to
+// keep looking for another way to serve a name — unlike an unreadable store, which is
+// not — so it needs to be distinguishable without matching on a localized message.
+var ErrSourceDark = errors.New("router: source not live")
 
 func (r *Router) fromAlias(name, via string) ([]Target, error) {
 	a, err := r.db.Alias(name)
@@ -95,7 +138,8 @@ func (r *Router) direct(sourceID, modelID, via string) (Target, error) {
 		return Target{}, err
 	}
 	if s.Status != store.StatusLive {
-		return Target{}, fmt.Errorf("%s", i18n.T("route.sourceNotLive", s.Name, s.Status))
+		return Target{}, fmt.Errorf("%s: %w",
+			i18n.T("route.sourceNotLive", s.Name, i18n.SourceStatus(s.Status)), ErrSourceDark)
 	}
 	m, err := r.db.Model(sourceID, modelID)
 	if err != nil {

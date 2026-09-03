@@ -25,6 +25,36 @@ type Entry struct {
 	RespBytes        int     `json:"resp_bytes"`
 }
 
+// Begin reserves a ledger row before a request leaves, and returns its id.
+//
+// The egress view is the product: "you see, on your own disk, exactly what left your
+// machine" is the claim, and a request that goes out with no row is a request the person
+// cannot see. Writing the row afterwards means a crash, a full disk, or a locked database
+// between the send and the write produces exactly that — traffic with no record.
+//
+// So the row is written first, marked in-flight, and completed after. A row that never
+// gets completed is visible as in-flight, which is a true statement about what happened.
+func (d *DB) Begin(e Entry) (int64, error) {
+	e.Status = StatusInFlight
+	return d.Record(e)
+}
+
+// StatusInFlight marks a ledger row whose request had not finished when it was written.
+// A row left in this state means the daemon died mid-request — the traffic happened and
+// the outcome is unknown, which is worth saying rather than hiding.
+const StatusInFlight = -1
+
+// Complete finishes a row Begin reserved.
+func (d *DB) Complete(id int64, e Entry) error {
+	_, err := d.sql.Exec(`
+UPDATE ledger SET model_id=?, provider=?, source_id=?, lane=?, egress=?,
+  prompt_tokens=?, completion_tokens=?, cost=?, latency_ms=?, status=?, err=?,
+  req_bytes=?, resp_bytes=? WHERE id=?`,
+		e.ModelID, e.Provider, e.SourceID, e.Lane, e.Egress, e.PromptTokens,
+		e.CompletionTokens, e.Cost, e.LatencyMS, e.Status, e.Err, e.ReqBytes, e.RespBytes, id)
+	return err
+}
+
 // Record appends a ledger row and returns its id.
 //
 // The id is returned rather than looked up afterwards: reading MAX(id) as a separate
@@ -243,7 +273,7 @@ func (d *DB) Failures(limit int) ([]Entry, error) {
 	rows, err := d.sql.Query(`
 SELECT id,ts,grant_id,app,source_id,provider,model_id,requested_model,lane,egress,
        prompt_tokens,completion_tokens,cost,latency_ms,status,err,req_bytes,resp_bytes
-FROM ledger WHERE status >= 400 OR err <> '' ORDER BY id DESC LIMIT ?`, limit)
+FROM ledger WHERE status >= 400 OR status = -1 OR err <> '' ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

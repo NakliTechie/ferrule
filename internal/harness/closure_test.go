@@ -1,6 +1,7 @@
 package harness_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -177,5 +178,53 @@ func TestAgentCannotReadTheContentLog(t *testing.T) {
 	if res["isError"] != true {
 		body, _ := json.Marshal(res)
 		t.Fatalf("an agent read the content log: %s", body)
+	}
+}
+
+// A key that no source refers to is unreachable through every surface — it cannot be
+// listed, used, or deleted by a person — which makes it a secret that outlives the
+// account it belonged to. The two stores are reconciled on the way up.
+func TestOrphanedKeysAreSweptOnStartup(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.Open(app.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One key with a source, one without — the state a crash between the two writes
+	// leaves behind.
+	if err := a.DB.PutSource(store.Source{
+		ID: "keeper", Name: "keeper", Provider: "anthropic", Kind: store.KindCloud,
+		Lane: store.LaneTokens, BaseURL: "https://api.anthropic.com/v1",
+		KeyRef: "source:keeper", Status: store.StatusLive,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Vault.Put("source:keeper", "sk-still-referenced"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Vault.Put("source:orphan", "sk-nothing-points-here"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+
+	a2, err := app.Open(app.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a2.Close()
+
+	if _, err := a2.Vault.Get("source:keeper"); err != nil {
+		t.Errorf("the sweep took a key that a source still refers to: %v", err)
+	}
+	if _, err := a2.Vault.Get("source:orphan"); err == nil {
+		t.Error("an orphaned key survived startup")
+	}
+	// And it is gone from disk, not merely hidden.
+	raw, err := os.ReadFile(filepath.Join(dir, "vault.age"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("source:orphan")) {
+		t.Error("the orphan's ref is still in the encrypted store")
 	}
 }

@@ -56,10 +56,33 @@ func Open(o Options) (*App, error) {
 		return nil, err
 	}
 	cat := catalog.Open(dir)
-	return &App{
+	a := &App{
 		Dir: dir, DB: db, Vault: v, Catalog: cat,
 		Discovery: discovery.New(db, v, cat),
-	}, nil
+	}
+	// Reconcile the two stores on the way up. A key that no source refers to any more is
+	// a secret nothing can reach and nobody can delete; the only place to notice one is
+	// here, where both stores are open at once.
+	if err := a.pruneOrphanKeys(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return a, nil
+}
+
+func (a *App) pruneOrphanKeys() error {
+	srcs, err := a.DB.Sources()
+	if err != nil {
+		return err
+	}
+	live := make(map[string]bool, len(srcs))
+	for _, s := range srcs {
+		if s.KeyRef != "" {
+			live[s.KeyRef] = true
+		}
+	}
+	_, err = vault.Prune(a.Vault, live)
+	return err
 }
 
 // Close releases the database handle.

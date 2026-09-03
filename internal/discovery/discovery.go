@@ -167,15 +167,25 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	if key != "" {
 		src.KeyRef = vault.Ref(id)
 	}
-	if err := e.db.PutSource(src); err != nil {
-		return Result{}, err
-	}
-	// The key goes to the vault, never to SQLite. It is written before the probe so a
-	// crash mid-probe cannot leave a source pointing at a ref that holds nothing.
+	// The key goes to the vault first, and the row that references it second.
+	//
+	// Two stores, one operation, and no transaction across them — so the order decides
+	// which half-failure is possible. Vault-then-row means a failure leaves an orphaned
+	// encrypted blob that nothing points at, which the startup sweep collects and which
+	// no user-visible surface is wrong about. Row-then-vault means a source that appears
+	// live and holds a reference to a key that was never stored, which is a lie the
+	// interface tells until someone tries to use it.
 	if key != "" {
 		if err := e.vault.Put(src.KeyRef, key); err != nil {
 			return Result{}, err
 		}
+	}
+	if err := e.db.PutSource(src); err != nil {
+		// Take the orphan back out rather than leaving it for the sweep.
+		if key != "" {
+			_ = e.vault.Delete(src.KeyRef)
+		}
+		return Result{}, err
 	}
 
 	res, reason := e.run(ctx, spec, src, key)
@@ -406,9 +416,10 @@ func (e *Engine) Remove(sourceID string) error {
 		return err
 	}
 	if src.KeyRef != "" {
-		// If the key cannot be removed, the source row stays too. Deleting the row while
-		// the encrypted key survives would leave a secret on disk with nothing left in
-		// the interface that refers to it — unreachable, unlistable, and unremovable.
+		// The key goes first, for the same reason it is written first: the failure this
+		// ordering allows is a row whose key is already gone, which shows up immediately
+		// and honestly as a source that cannot authenticate. The other ordering allows a
+		// secret to survive on disk with nothing in the interface referring to it.
 		if err := e.vault.Delete(src.KeyRef); err != nil {
 			return err
 		}

@@ -129,6 +129,31 @@ exists. The panel dispatches only ops the bus defines, which is why `manifest �
 bus` is structural rather than remembered. *Asserted:*
 `TestParityManifestSupersetsCommandBus`.
 
+### 0.9a Fail closed on Ferrule's own faults, not just the provider's
+
+Three refusals, all of them Ferrule declining to guess about itself:
+
+- **An unreadable routing table is a 503, not a 404.** Only `store.ErrNotFound` advances
+  the resolution search; any other database error stops it. Treating a storage fault as
+  "no such alias" walks past the person's routing and lands on whatever bare model id
+  happens to match — the exhausted-alias failure again, by another route. *Asserted:*
+  `TestAnUnreadableStoreRefusesRatherThanGuesses`, which drops the alias table under a
+  live daemon rather than mocking a failure.
+- **A request Ferrule cannot record is not made.** The ledger row is reserved *before*
+  anything leaves and completed after. "You see, on your own disk, exactly what left your
+  machine" is the product; routing traffic that view will never show is a worse failure
+  than refusing. A row left in-flight means the daemon died mid-request — the traffic
+  happened and the outcome is unknown, which is worth saying rather than hiding.
+  *Asserted:* `TestARequestFerruleCannotRecordIsNotMade`,
+  `TestTheLedgerRowExistsBeforeTheRequestLeaves`.
+- **The vault is written before the row that references it, and swept on the way up.**
+  Two stores, one operation, no transaction between them — so the order decides which
+  half-failure is possible. Vault-first leaves at worst an orphaned blob that nothing
+  points at; row-first would leave a source that looks live and holds a reference to a key
+  that was never stored. Orphans are reconciled at startup, because a secret nothing can
+  reach is also a secret nobody can delete. *Asserted:*
+  `TestOrphanedKeysAreSweptOnStartup`.
+
 ### 0.10 The evaluator stays outside the loop — fail closed
 
 - The agent door cannot land a mutation. Mutating ops **stage**; a person applies.

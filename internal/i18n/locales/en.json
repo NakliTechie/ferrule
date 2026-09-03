@@ -232,5 +232,7 @@
   "ui.egress.meterLabel": "Share of requests that stayed on this machine: %s%%",
   "passthrough.methodRefused": "%s is not an inference call on %s. The passthrough mount carries your provider key, so it serves that provider's inference surface and nothing else — account, billing, and file operations are yours to make directly.",
   "reason.credential_in_url": "the base URL carries a credential in its %s",
-  "remedy.credential_in_url": "Put the key in the key field. A base URL is stored in the database and travels in an export; the vault is the only place a credential belongs."
+  "remedy.credential_in_url": "Put the key in the key field. A base URL is stored in the database and travels in an export; the vault is the only place a credential belongs.",
+  "route.unreadable": "could not decide where %q should go: Ferrule could not read its own routing tables, and will not guess",
+  "route.unrecordable": "Ferrule could not record this request, so it did not make it. The egress ledger is the point of the product; routing traffic it cannot account for would be worse than refusing. Check the config directory is writable: %s"
 }

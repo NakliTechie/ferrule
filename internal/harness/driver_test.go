@@ -223,6 +223,15 @@ func TestVaultSurvivesAnInterruptedWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A real source row, not a bare vault entry: a key nothing refers to is an orphan,
+	// and the startup sweep is supposed to collect those.
+	if err := a.DB.PutSource(store.Source{
+		ID: "one", Name: "one", Provider: "anthropic", Kind: store.KindCloud,
+		Lane: store.LaneTokens, BaseURL: "https://api.anthropic.com/v1",
+		KeyRef: "source:one", Status: store.StatusLive,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Vault.Put("source:one", "sk-first"); err != nil {
 		t.Fatal(err)
 	}

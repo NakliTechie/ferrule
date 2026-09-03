@@ -305,3 +305,49 @@ func TestStreamingIsRelayedIncrementally(t *testing.T) {
 		t.Errorf("the first chunk took %v to arrive; it should leave as soon as it lands", at[0])
 	}
 }
+
+// A store Ferrule cannot read is a refusal, never a guess.
+//
+// Every resolution step used to treat any error as "not found", so a transient database
+// fault walked straight past the person's aliases and landed on a bare model id that
+// happened to match — the exhausted-alias bug again, through a different door. The store
+// is genuinely broken here (its tables are dropped underneath a live daemon) rather than
+// mocked, because the point is what happens when reality fails, not what a fake returns.
+func TestAnUnreadableStoreRefusesRatherThanGuesses(t *testing.T) {
+	r := newRig(t)
+
+	cloud := mock.New("sk-cloud", "qwen3:8b") // same model id, different source
+	defer cloud.Close()
+	local := mock.New("", "qwen3:8b")
+	defer local.Close()
+	r.addSource(t, "anthropic", "anthropic", "sk-cloud", cloud)
+	localSrc := r.addLocal(t, "ollama", local)
+
+	if _, err := r.bus.Dispatch(context.Background(), "set_alias", api.Args{
+		"name": "qwen3:8b", "ladder": []any{localSrc.ID + "/qwen3:8b"},
+	}, api.DoorCLI, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	tok := r.mint(t, "careful-app")
+	before := len(cloud.Requests())
+
+	// Break the alias table out from under the running daemon.
+	if _, err := r.app.DB.SQL().Exec(`DROP TABLE aliases`); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, raw := r.chat(t, tok, "qwen3:8b", false)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("an unreadable store was served anyway: %s", raw)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("HTTP %d, want 503 — an unreadable store is not a missing model", resp.StatusCode)
+	}
+	if !strings.Contains(string(raw), "will not guess") {
+		t.Errorf("the error does not say why it refused: %s", raw)
+	}
+	if after := cloud.Requests()[before:]; len(after) != 0 {
+		t.Fatalf("a prompt reached a source the person never pointed at: %+v", after)
+	}
+}

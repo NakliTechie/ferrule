@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptrace"
 	"strings"
@@ -157,11 +158,18 @@ func (r *Router) forward(w http.ResponseWriter, req *http.Request, g store.Grant
 	requested, _ := envelope["model"].(string)
 	targets, err := r.Resolve(requested)
 	if err != nil {
+		// "No such model" is the client's problem; "I cannot read my own routing tables"
+		// is Ferrule's, and answering 404 for it would send a caller looking for a typo
+		// that is not there.
+		code := http.StatusNotFound
+		if errors.Is(err, ErrUnreadable) {
+			code = http.StatusServiceUnavailable
+		}
 		_, _ = r.db.Record(store.Entry{
 			GrantID: g.ID, App: g.App, RequestedModel: requested,
-			Status: http.StatusNotFound, Err: err.Error(), ReqBytes: len(body),
+			Status: code, Err: err.Error(), ReqBytes: len(body),
 		})
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(w, code, err.Error())
 		return
 	}
 
@@ -243,10 +251,24 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		},
 	})
 
+	// Reserve the row before anything leaves. If Ferrule cannot record the request, it
+	// does not make it: routing traffic the egress view will never show is a worse
+	// failure than refusing, for a product whose whole claim is that you can see what
+	// left your machine.
+	entryID, err := r.db.Begin(entry)
+	if err != nil {
+		return outcome{
+			retryable: false, status: http.StatusServiceUnavailable,
+			err: i18n.T("route.unrecordable", err.Error()),
+		}
+	}
+
 	start := time.Now()
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		provider.URL(t.Source.BaseURL, path), bytes.NewReader(upstreamBody))
 	if err != nil {
+		entry.Status, entry.Err = http.StatusInternalServerError, err.Error()
+		_ = r.db.Complete(entryID, entry)
 		return outcome{retryable: false, status: http.StatusInternalServerError, err: err.Error()}
 	}
 	upReq.Header.Set("Content-Type", "application/json")
@@ -262,7 +284,7 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	if err != nil {
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", t.Source.Name, err.Error())
-		_, _ = r.db.Record(entry)
+		r.complete(entryID, entry)
 		return outcome{retryable: true, status: http.StatusBadGateway, err: entry.Err}
 	}
 	defer resp.Body.Close()
@@ -274,7 +296,7 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.RespBytes = http.StatusBadGateway, len(raw)
 		entry.Err = i18n.T("route.redirectRefused", t.Source.Name, resp.Header.Get("Location"))
-		_, _ = r.db.Record(entry)
+		r.complete(entryID, entry)
 		return outcome{retryable: true, status: http.StatusBadGateway, err: entry.Err}
 	}
 	if resp.StatusCode >= 400 {
@@ -282,7 +304,7 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.RespBytes = resp.StatusCode, len(raw)
 		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, redactKnown(string(raw), key))
-		_, _ = r.db.Record(entry)
+		r.complete(entryID, entry)
 		// 5xx and 429 are the upstream's problem; the next rung may well answer.
 		retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
 		return outcome{retryable: retry, status: resp.StatusCode, err: entry.Err}
@@ -329,7 +351,8 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	entry.Status, entry.RespBytes = resp.StatusCode, n
 	entry.PromptTokens, entry.CompletionTokens = usage.Prompt, usage.Completion
 	entry.Cost = Cost(t.Model, usage.Prompt, usage.Completion)
-	id, _ := r.db.Record(entry)
+	r.complete(entryID, entry)
+	id := entryID
 	if logContent {
 		// Off by default, local only, and stored apart from the ledger (§4.5). The id
 		// comes from the insert itself, so a concurrent request cannot claim this row.
@@ -347,6 +370,15 @@ const maxBody = 64 << 20
 
 // errTruncated marks a response that hit maxBody.
 var errTruncated = errors.New("upstream response exceeded the size Ferrule will buffer")
+
+// complete finishes a reserved ledger row. A failure here cannot be returned to the
+// caller — the response is already being served — but it must not be silent either: the
+// row exists and stays in-flight, which is a true statement, and the daemon says so.
+func (r *Router) complete(id int64, e store.Entry) {
+	if err := r.db.Complete(id, e); err != nil {
+		log.Printf("ferrule: ledger row %d left in-flight: %v", id, err)
+	}
+}
 
 // Cost prices a call from the model's catalog-sourced per-million-token rates.
 func Cost(m store.Model, prompt, completion int) float64 {

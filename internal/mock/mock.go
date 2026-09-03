@@ -30,6 +30,9 @@ type Provider struct {
 	// ChunkDelay spaces out streamed chunks, so a caller can prove it is receiving them
 	// as they are produced rather than in one buffered lump at the end.
 	ChunkDelay time.Duration
+	// BeforeRespond runs once the mock has the request and before it answers, so a test
+	// can observe Ferrule's state at the moment a request is in the air.
+	BeforeRespond func()
 	// Down makes the server refuse connections after Stop.
 	mu       sync.Mutex
 	requests []Request
@@ -73,6 +76,9 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 	})
 	p.mu.Unlock()
 
+	if p.BeforeRespond != nil {
+		p.BeforeRespond()
+	}
 	if p.Key != "" {
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if got != p.Key {

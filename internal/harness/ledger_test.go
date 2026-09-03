@@ -248,3 +248,79 @@ func contains(hay, needle string) bool {
 		return false
 	})()
 }
+
+// If Ferrule cannot record a request, it does not make it.
+//
+// The egress view is the product — "you see, on your own disk, exactly what left your
+// machine". A request routed with no ledger row is precisely the thing that claim
+// forbids, so an unwritable ledger is a refusal rather than a silent send. The ledger is
+// genuinely broken here, not mocked.
+func TestARequestFerruleCannotRecordIsNotMade(t *testing.T) {
+	r := newRig(t)
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	r.addLocal(t, "ollama", up)
+	tok := r.mint(t, "accountable-app")
+
+	before := len(up.Requests())
+	if _, err := r.app.DB.SQL().Exec(`DROP TABLE ledger`); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, raw := r.chat(t, tok, "qwen3:8b", false)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a request was routed with no ledger row: %s", raw)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("HTTP %d, want 503", resp.StatusCode)
+	}
+	if after := up.Requests()[before:]; len(after) != 0 {
+		t.Fatalf("the provider was contacted for a request that could not be recorded: %+v", after)
+	}
+}
+
+// A row is written before the request leaves, so a daemon that dies mid-request leaves
+// evidence that traffic happened rather than no trace at all.
+func TestTheLedgerRowExistsBeforeTheRequestLeaves(t *testing.T) {
+	r := newRig(t)
+
+	seen := make(chan int, 1)
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	r.addLocal(t, "ollama", up)
+	tok := r.mint(t, "midflight")
+
+	// Count the rows the moment the upstream is being called — i.e. after Ferrule has
+	// decided to send and before it has seen a response.
+	up.BeforeRespond = func() {
+		var n int
+		_ = r.app.DB.SQL().QueryRow(`SELECT COUNT(*) FROM ledger WHERE status = ?`,
+			store.StatusInFlight).Scan(&n)
+		select {
+		case seen <- n:
+		default:
+		}
+	}
+
+	resp, _ := r.chat(t, tok, "qwen3:8b", false)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP %d", resp.StatusCode)
+	}
+	select {
+	case n := <-seen:
+		if n < 1 {
+			t.Error("no in-flight row existed while the request was in the air")
+		}
+	default:
+		t.Fatal("the upstream was never reached")
+	}
+	// And it is completed afterwards, not left in-flight.
+	var stuck int
+	if err := r.app.DB.SQL().QueryRow(`SELECT COUNT(*) FROM ledger WHERE status = ?`,
+		store.StatusInFlight).Scan(&stuck); err != nil {
+		t.Fatal(err)
+	}
+	if stuck != 0 {
+		t.Errorf("%d row(s) left in-flight after a completed request", stuck)
+	}
+}

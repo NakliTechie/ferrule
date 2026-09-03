@@ -8,6 +8,7 @@ package passthrough
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -139,12 +140,20 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 		ModelID: tail, RequestedModel: name + "/" + tail, Lane: store.LanePassthrough,
 		Egress: router.Egress(src.BaseURL), ReqBytes: int(max64(r.ContentLength, 0)),
 	}
+	// Reserved before anything leaves, for the same reason as the token lane: a request
+	// the egress view will never show is the one failure this product cannot afford.
+	entryID, err := h.db.Begin(entry)
+	if err != nil {
+		http.Error(w, i18n.T("route.unrecordable", err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+
 	start := time.Now()
 	resp, err := h.client.Do(upReq)
 	if err != nil {
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.Err = http.StatusBadGateway, i18n.T("route.upstreamFailed", src.Name, err.Error())
-		_, _ = h.db.Record(entry)
+		h.complete(entryID, entry)
 		http.Error(w, entry.Err, http.StatusBadGateway)
 		return
 	}
@@ -159,14 +168,28 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	n, _ := io.Copy(flushWriter{w}, resp.Body)
+	n, copyErr := io.Copy(flushWriter{w}, resp.Body)
 
 	entry.LatencyMS = int(time.Since(start).Milliseconds())
 	entry.Status, entry.RespBytes = resp.StatusCode, int(n)
 	if resp.StatusCode >= 400 {
 		entry.Err = i18n.T("reason.bad_status", resp.StatusCode, "")
 	}
-	_, _ = h.db.Record(entry)
+	if copyErr != nil {
+		// The client hung up, or the upstream stopped mid-body. Recording a clean 200
+		// for a response that was not delivered whole is the quiet kind of wrong.
+		entry.Err = i18n.T("route.truncated", copyErr.Error())
+	}
+	h.complete(entryID, entry)
+}
+
+// complete finishes a reserved ledger row. The response is already served by this point,
+// so a failure cannot reach the caller — but the row stays in-flight, which is true, and
+// the daemon says so.
+func (h *Handler) complete(id int64, e store.Entry) {
+	if err := h.db.Complete(id, e); err != nil {
+		log.Printf("ferrule: ledger row %d left in-flight: %v", id, err)
+	}
 }
 
 // flushWriter pushes each chunk out as it arrives so a streaming provider stays streaming.

@@ -379,3 +379,29 @@ func (v *ageVault) Unseal(b []byte, passphrase string) error {
 // Ref builds the vault ref for a source id. Refs are opaque handles; only the ref ever
 // reaches SQLite, never the secret.
 func Ref(sourceID string) string { return "source:" + sourceID }
+
+// Prune removes stored secrets that nothing refers to any more.
+//
+// The vault and the source table are two stores with no transaction between them, so a
+// crash or a failed write at the wrong moment can leave an encrypted blob that no source
+// points at. That blob is unreachable through every surface — it cannot be listed, used,
+// or deleted by a person — which makes it exactly the kind of secret that outlives the
+// account it belonged to. Reconciling at startup is what stops "unreachable" from
+// meaning "permanent".
+func Prune(v Vault, live map[string]bool) (int, error) {
+	refs, err := v.Refs()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, ref := range refs {
+		if live[ref] {
+			continue
+		}
+		if err := v.Delete(ref); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
