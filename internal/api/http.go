@@ -32,6 +32,11 @@ func New(a *app.App) *API {
 // Token is the run's control-plane secret, for the panel the daemon serves itself.
 func (s *API) Token() *Token { return s.token }
 
+// SetLANEndpoint records the address other machines reach Ferrule at, so the panel can
+// hand a newly minted token the URL that works from the machine it is for. Empty when
+// Ferrule is not on the network.
+func (s *API) SetLANEndpoint(ep string) { s.bus.lanEndpoint = ep }
+
 // Bus exposes the command bus (the CLI and the tests dispatch through it directly).
 func (s *API) Bus() *Bus { return s.bus }
 

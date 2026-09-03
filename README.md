@@ -82,6 +82,37 @@ c.chat.completions.create(model="gpt-4o", messages=[...]) # remapped to whatever
 The `model` field may be an alias, a real model id, `source/model`, or an id you have
 remapped — which is how Ferrule helps an app that will only ever send `gpt-4o`.
 
+## Sharing it with the house
+
+```
+ferrule serve --lan
+```
+
+Ferrule is now reachable from the other machines on your network — for **inference only**.
+The panel, the vault, minting tokens, exporting configuration: all of it still answers
+this machine and nothing else, and answers everyone else with a 403. That is enforced per
+connection, from the peer address of the accepted socket, so it is not something a client
+can talk its way around.
+
+Give each person their own token:
+
+```
+ferrule key om
+```
+
+That is the whole setup. There are no accounts and no roles, because attribution is what
+you actually want: usage and egress already say *who* sent what to whom, and taking
+someone off is `ferrule key --revoke <id>`. Your keys never leave this machine — the
+household is pointing at your endpoint, not holding your credentials.
+
+**One thing to know.** App tokens cross your network in the clear, so anyone who can read
+your wifi traffic can lift one, and a token spends money. On your own WPA2/WPA3 network
+that is the same trust boundary every other box on it already sits behind, which is why
+this ships as a flag and not a warning — but it is why you mint one per person and revoke
+rather than share. If you want it airtight, run Ferrule on a
+[Tailscale](https://tailscale.com) address instead of your LAN; that needs no code and no
+flag beyond `--host`.
+
 ## The two lanes
 
 The fault line is **normalization cost**, not text versus media.

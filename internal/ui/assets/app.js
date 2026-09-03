@@ -154,6 +154,13 @@ async function loadAll() {
   state.staged = staged.staged || [];
   $("#foot-vault").textContent = st.vault;
   $("#foot-catalog").textContent = st.catalog_date || "—";
+  const lanRow = $("#foot-lan");
+  if (st.lan_endpoint) {
+    lanRow.hidden = false;
+    $("#foot-lan-value").textContent = st.lan_endpoint;
+  } else {
+    lanRow.hidden = true;
+  }
   const dir = $("#foot-dir");
   dir.textContent = st.config_dir.replace(/^\/Users\/[^/]+/, "~");
   dir.title = st.config_dir;
@@ -674,16 +681,31 @@ function mintDialog() {
         onclick: async () => {
           try {
             const r = await op("mint_grant", { app: appIn.value.trim() || "app" });
-            const base = location.origin + "/v1";
-            $("#modal-body").replaceChildren(
+            const lan = state.status && state.status.lan_endpoint;
+            const here = location.origin + "/v1";
+            const kids = [
               el("h3", { text: T("ui.grants.shownOnce") }),
               el("pre", { class: "mono code", text: r.token }),
               el("p", { class: "note", text: T("grant.minted", r.grant.app, "", location.host).split("\n").pop() }),
+            ];
+            if (lan) {
+              // A token minted for someone else needs the address that works from their
+              // machine. localhost is this one.
+              kids.push(
+                el("p", { class: "note", text: T("ui.grants.lanHint") }),
+                el("p", { class: "note", text: T("ui.grants.forOthers") }),
+                el("pre", { class: "mono code",
+                  text: "OPENAI_BASE_URL=http://" + lan + "/v1\nOPENAI_API_KEY=" + r.token }),
+                el("p", { class: "note", text: T("ui.grants.forThisMachine") }),
+              );
+            }
+            kids.push(
               el("pre", { class: "mono code",
-                text: "OPENAI_BASE_URL=" + base + "\nOPENAI_API_KEY=" + r.token }),
+                text: "OPENAI_BASE_URL=" + here + "\nOPENAI_API_KEY=" + r.token }),
               el("button", { class: "act", type: "button", text: T("ui.action.close"),
                 onclick: async () => { closeModal(); await refresh(); } }),
             );
+            $("#modal-body").replaceChildren(...kids);
           } catch (err) { toast(err.message, "error"); }
         } }),
       el("button", { class: "act", type: "button", text: T("ui.action.cancel"), onclick: closeModal }),

@@ -184,10 +184,19 @@ Three refusals, all of them Ferrule declining to guess about itself:
 |---|---|---|---|
 | Raw-tokens inference | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models` | Ferrule app token (Bearer) | any OpenAI-compatible client |
 | Media passthrough | `/p/<source>/…` | Ferrule app token | the provider's own SDK, native shape |
-| Control | `/api/op/<name>`, `/mcp` | localhost + origin guard | the panel, the CLI, an agent |
+| Control | `/api/op/<name>`, `/mcp` | this machine + a per-run control token | the panel, the CLI, an agent |
 
 The control face is not an inference path. Inference for an agent goes through the
 OpenAI-compatible endpoint like anything else.
+
+**`--lan` separates them by reach, not by port.** With it, one listener serves the
+network, and the control routes refuse any connection whose peer is not loopback. The
+peer address comes from the accepted TCP socket rather than a header, so it cannot be
+claimed: replying to a forged source requires completing a handshake the sender never
+sees. That is what lets a household share the inference endpoints while the vault stays
+on the machine it lives on. *Asserted:*
+`TestOnTheNetworkInferenceIsSharedAndTheVaultIsNot`, which binds a real non-loopback
+address — a loopback test server cannot exercise this guard at all.
 
 ### Model resolution
 

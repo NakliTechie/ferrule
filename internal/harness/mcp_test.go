@@ -15,6 +15,7 @@ import (
 
 	"ferrule/internal/api"
 	"ferrule/internal/app"
+	"ferrule/internal/discovery"
 	"ferrule/internal/mock"
 	"ferrule/internal/server"
 	"ferrule/internal/ui"
@@ -431,5 +432,117 @@ func TestStagedOpAppliesExactlyOnce(t *testing.T) {
 	}
 	if len(grants) != 1 {
 		t.Fatalf("%d grants minted from one staged operation", len(grants))
+	}
+}
+
+// Ferrule on the home network: inference for the household, the vault for the machine it
+// lives on.
+//
+// The daemon binds a real non-loopback address here and is driven over it, because the
+// whole guard turns on the peer address of the accepted connection — a loopback test
+// server cannot exercise it at all.
+func TestOnTheNetworkInferenceIsSharedAndTheVaultIsNot(t *testing.T) {
+	ip := lanAddr(t)
+
+	a, err := app.Open(app.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	if _, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "ollama", Provider: "ollama", BaseURL: up.BaseURL(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := api.NewBus(a).Dispatch(context.Background(), "mint_grant",
+		api.Args{"app": "om"}, api.DoorCLI, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := res.(map[string]any)["token"].(string)
+
+	srv, err := server.New(a, server.Options{Addr: ip + ":0", LAN: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Serve(ctx)
+	base := "http://" + srv.Addr()
+
+	get := func(method, path, token string, body string) int {
+		req, _ := http.NewRequest(method, base+path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// The family's half: inference works with a token, and only with one.
+	if code := get(http.MethodGet, "/v1/models", tok, ""); code != http.StatusOK {
+		t.Errorf("inference over the network got HTTP %d, want 200 — this is the point", code)
+	}
+	if code := get(http.MethodGet, "/v1/models", "", ""); code != http.StatusUnauthorized {
+		t.Errorf("untokened inference got HTTP %d, want 401", code)
+	}
+	if code := get(http.MethodPost, "/p/replicate/predictions", tok, "{}"); code == http.StatusOK {
+		t.Error("the passthrough mount served a source that does not exist")
+	}
+
+	// The machine's half: nothing that touches the vault answers the network, and an app
+	// token does not buy any of it either.
+	for _, path := range []string{
+		"/", "/api/op/status", "/api/op/list_sources", "/api/op/mint_grant",
+		"/api/op/export_config", "/api/op/read_content", "/mcp", "/api/staged/",
+	} {
+		if code := get(http.MethodPost, path, tok, "{}"); code != http.StatusForbidden {
+			t.Errorf("%s answered the network with HTTP %d, want 403", path, code)
+		}
+	}
+
+	// And the control token is not obtainable over the network, because the page that
+	// carries it is not served over the network.
+	req, _ := http.NewRequest(http.MethodGet, base+"/", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if bytes.Contains(page, []byte("ferrule-control")) {
+		t.Fatal("the control token was served to the network")
+	}
+
+	// The endpoint the panel hands out is the one that works from another machine.
+	if ep := srv.LANEndpoint(); !strings.HasPrefix(ep, ip+":") {
+		t.Errorf("LANEndpoint() = %q, want the network address", ep)
+	}
+}
+
+// Without --lan, a non-loopback bind is still refused outright.
+func TestWithoutLANANonLoopbackBindIsRefused(t *testing.T) {
+	a, err := app.Open(app.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := server.New(a, server.Options{Addr: "0.0.0.0:0"}); err == nil {
+		t.Fatal("a non-loopback bind was accepted without --lan")
+	}
+	srv, err := server.New(a, server.Options{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep := srv.LANEndpoint(); ep != "" {
+		t.Errorf("LANEndpoint() = %q on a loopback daemon, want empty", ep)
 	}
 }

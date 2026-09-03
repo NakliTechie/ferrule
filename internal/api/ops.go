@@ -27,8 +27,10 @@ func stagedMissingMsg(id string) string { return i18n.T("mcp.stage.notFound", id
 func (b *Bus) register() {
 	// ---- read ops: registered on load, no setting, never staged ----
 
+	bus := b
 	b.add(&Op{Name: "status", Desc: i18n.T("op.status"),
 		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
+			_ = bus
 			srcs, _ := a.DB.Sources()
 			models, _ := a.DB.Models("")
 			live := 0
@@ -47,6 +49,7 @@ func (b *Bus) register() {
 				"catalog_refresh":    a.DB.Setting(store.SetCatalogRefresh, "on"),
 				"catalog_source":     catalog.RemoteURL,
 				"catalog_disclosure": i18n.T("catalog.disclosure", catalog.RemoteURL),
+				"lan_endpoint":       bus.lanEndpoint,
 				"sovereignty":        i18n.T("app.sovereignty"),
 			}, nil
 		}})

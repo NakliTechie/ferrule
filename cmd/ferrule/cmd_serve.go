@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", envPort(), "port to listen on")
 	host := fs.String("host", "127.0.0.1", "address to bind; localhost only by default")
+	lan := fs.Bool("lan", false, "let other machines on your network use the inference endpoints; the control panel and your vault stay on this machine")
 	passphrase := fs.Bool("passphrase", false, "prompt for a passphrase to unlock the vault, so nothing that can open it is written to disk")
 	noDetect := fs.Bool("no-detect", false, "skip the startup scan for local runtimes")
 	if err := fs.Parse(args); err != nil {
@@ -42,14 +44,28 @@ func cmdServe(args []string) error {
 	}
 	defer a.Close()
 
-	srv, err := server.New(a, server.Options{Addr: fmt.Sprintf("%s:%d", *host, *port)})
+	bind := *host
+	if *lan && bind == "127.0.0.1" {
+		// --lan without a host means "every interface"; typing both would be noise.
+		bind = "0.0.0.0"
+	}
+	srv, err := server.New(a, server.Options{
+		Addr: fmt.Sprintf("%s:%d", bind, *port), LAN: *lan,
+	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(i18n.T("serve.listening", srv.Addr()))
+	fmt.Println(i18n.T("serve.listening", localAddr(srv.Addr(), *port)))
 	fmt.Println(i18n.T("serve.configDir", a.Dir))
 	fmt.Println(i18n.T("serve.vaultBackend", a.Vault.Backend()))
+	if ep := srv.LANEndpoint(); ep != "" {
+		fmt.Println()
+		fmt.Println(i18n.T("serve.lanListening", ep))
+		fmt.Println("  " + i18n.T("serve.lanNote"))
+		fmt.Println("  " + i18n.T("serve.lanToken"))
+		fmt.Println("  " + i18n.T("serve.lanCleartext"))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -109,6 +125,15 @@ func cmdServe(args []string) error {
 	err = srv.Serve(ctx)
 	fmt.Println(i18n.T("serve.shutdown"))
 	return err
+}
+
+// localAddr keeps the printed URL usable from this machine even when the listener is
+// bound to every interface: "0.0.0.0:8899" is not somewhere a browser can go.
+func localAddr(bound string, port int) string {
+	if strings.HasPrefix(bound, "0.0.0.0:") || strings.HasPrefix(bound, "[::]:") {
+		return fmt.Sprintf("127.0.0.1:%d", port)
+	}
+	return bound
 }
 
 func envPort() int {

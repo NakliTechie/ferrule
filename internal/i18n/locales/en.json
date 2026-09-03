@@ -234,5 +234,13 @@
   "reason.credential_in_url": "the base URL carries a credential in its %s",
   "remedy.credential_in_url": "Put the key in the key field. A base URL is stored in the database and travels in an export; the vault is the only place a credential belongs.",
   "route.unreadable": "could not decide where %q should go: Ferrule could not read its own routing tables, and will not guess",
-  "route.unrecordable": "Ferrule could not record this request, so it did not make it. The egress ledger is the point of the product; routing traffic it cannot account for would be worse than refusing. Check the config directory is writable: %s"
+  "route.unrecordable": "Ferrule could not record this request, so it did not make it. The egress ledger is the point of the product; routing traffic it cannot account for would be worse than refusing. Check the config directory is writable: %s",
+  "serve.lanListening": "Reachable on your network at http://%s/v1",
+  "serve.lanNote": "Inference only. The control panel stays on this machine — anyone else on the network gets 403 from it, so your vault is not reachable even though the endpoint is.",
+  "serve.lanToken": "Each person needs their own app token: `ferrule key <name>`. That is what makes the usage and egress views say who did what.",
+  "serve.lanCleartext": "App tokens cross the network in the clear. On your own wifi that is the same trust boundary every other box on it already sits behind, but a token spends money — so mint one per person and revoke rather than share.",
+  "control.notLocal": "The control surface is only served to this machine. Ferrule is reachable from %s for inference, but reading the vault, minting tokens and exporting configuration stay here.",
+  "ui.grants.lanHint": "This machine is on your network. Give whoever this token is for the base URL below — theirs, not localhost.",
+  "ui.grants.forThisMachine": "For an app on this machine",
+  "ui.grants.forOthers": "For a machine on your network"
 }
