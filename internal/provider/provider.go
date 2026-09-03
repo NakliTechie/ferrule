@@ -81,6 +81,14 @@ var specs = map[string]Spec{
 		AuthHeader: "Authorization", AuthPrefix: "Bearer ", Listing: ListOpenAI,
 		KeyHint: "sk-…", Docs: "https://platform.openai.com/api-keys",
 	},
+	// NVIDIA's hosted NIM endpoints. OpenAI-compatible for chat and listing, which is why
+	// it costs nothing to seed: added on demand, per §4.4, not on spec.
+	"nvidia": {
+		ID: "nvidia", Label: "NVIDIA", Kind: store.KindCloud, Lane: store.LaneTokens,
+		DefaultBaseURL: "https://integrate.api.nvidia.com/v1", NeedsKey: true,
+		AuthHeader: "Authorization", AuthPrefix: "Bearer ", Listing: ListOpenAI,
+		KeyHint: "nvapi-…", Docs: "https://build.nvidia.com",
+	},
 	"openai-compatible": {
 		ID: "openai-compatible", Label: "OpenAI-compatible", Kind: store.KindCloud,
 		Lane: store.LaneTokens, NeedsKey: false, NeedsBaseURL: true,

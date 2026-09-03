@@ -59,6 +59,12 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ferrule:", err)
+		// A typed failure carries the next move; printing the problem without it is
+		// half the message.
+		var r discovery.Reason
+		if errors.As(err, &r) && r.Remedy != "" {
+			fmt.Fprintln(os.Stderr, " ", r.Remedy)
+		}
 		os.Exit(exitFor(err))
 	}
 }

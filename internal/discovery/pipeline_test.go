@@ -68,6 +68,8 @@ func TestCheckpointAddASourcePipeline(t *testing.T) {
 		{"anthropic", "sk-ant-harness", []string{"claude-sonnet-5", "claude-haiku-4-5"}},
 		{"deepseek", "sk-harness", []string{"deepseek-chat", "deepseek-reasoner"}},
 		{"groq", "gsk_harness", []string{"llama-3.3-70b-versatile"}},
+		{"nvidia", "nvapi-harness", []string{"meta/llama-3.3-70b-instruct"}},
+		{"openai", "sk-harness", []string{"gpt-4o"}},
 		{"replicate", "r8_harness", nil},
 	}
 	for _, c := range cloud {
@@ -257,6 +259,23 @@ func TestUnknownProviderIsRefusedLoudly(t *testing.T) {
 	}
 	if _, ok := provider.Get("openai-compatible"); !ok {
 		t.Error("the generic OpenAI-compatible provider is missing from the seed set")
+	}
+}
+
+// Every seeded provider must be exercised by the pipeline checkpoint. Adding one to the
+// curated set and not to the harness is how a provider ships untested.
+func TestEverySeededProviderIsCoveredByTheCheckpoint(t *testing.T) {
+	// The providers the checkpoint stands up, kept beside the table it uses.
+	covered := map[string]bool{
+		"ollama": true, "lmstudio": true, "llamacpp": true, // detected
+		"anthropic": true, "deepseek": true, "groq": true, "nvidia": true,
+		"openai": true, "replicate": true,
+		"openai-compatible": true, // asserted by TestUnknownProviderIsRefusedLoudly
+	}
+	for _, spec := range provider.All() {
+		if !covered[spec.ID] {
+			t.Errorf("provider %q is seeded but no checkpoint case exercises it", spec.ID)
+		}
 	}
 }
 

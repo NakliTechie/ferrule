@@ -188,7 +188,7 @@
   "reason.test_failed": "the test request failed: %s",
   "remedy.test_failed": "The source listed models but would not serve one. Check the key's scope and the provider's status.",
   "reason.unknown_provider": "unknown provider %q",
-  "remedy.unknown_provider": "Use one of the seeded providers, or `openai-compatible` with a base URL.",
+  "remedy.unknown_provider": "Known providers: %s. Or use `openai-compatible` with --base-url for anything else that speaks the OpenAI API.",
   "reason.needs_key": "%s needs an API key",
   "remedy.needs_key": "Pass --key, or leave it out to be prompted without echo.",
   "reason.needs_base_url": "an unknown OpenAI-compatible source needs a base URL",

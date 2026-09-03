@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"ferrule/internal/i18n"
+	"ferrule/internal/provider"
 )
 
 // Code is the closed vocabulary of reasons a source does not go live.
@@ -97,7 +98,7 @@ func (c Code) remedy() string {
 	case CodeTestTimeout:
 		return i18n.T("remedy.test_timeout")
 	case CodeUnknownProvider:
-		return i18n.T("remedy.unknown_provider")
+		return i18n.T("remedy.unknown_provider", provider.Names())
 	case CodeNeedsKey:
 		return i18n.T("remedy.needs_key")
 	case CodeNeedsBaseURL:

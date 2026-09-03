@@ -230,6 +230,7 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 // costs everything.
 var secretish = regexp.MustCompile(
 	`(?i)\b(?:sk-[A-Za-z0-9_\-]{8,}|gsk_[A-Za-z0-9_\-]{8,}|r8_[A-Za-z0-9_\-]{8,}|` +
+		`nvapi-[A-Za-z0-9_\-]{8,}|` +
 		`frl_[A-Za-z0-9_\-]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,}|` +
 		`(?:api[-_]?key|authorization|x-api-key)["\'\s:=]+[A-Za-z0-9._\-]{12,})`)
 

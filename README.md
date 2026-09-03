@@ -219,7 +219,9 @@ face staging its mutations. Design verification for the panel is recorded in
 
 No accounts, no auth, no multi-user, no team key pool, no hosted backend — any of those
 would make this a different product. No provider breadth for its own sake: a curated seed
-set, widened only when a real request arrives. No telemetry, ever. And Ferrule does not
+set — Anthropic, DeepSeek, Groq, NVIDIA, OpenAI, Replicate, and a generic
+OpenAI-compatible endpoint for everything else — widened only when a real request
+arrives. No telemetry, ever. And Ferrule does not
 run models — llama.cpp, Ollama, and the providers do inference; Ferrule routes.
 
 ## License
