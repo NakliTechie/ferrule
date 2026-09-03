@@ -231,7 +231,10 @@ func (b *Bus) register() {
 			}
 			return map[string]any{
 				"source": r.Source, "models": len(r.Models), "reason": r.Reason,
-				"live": r.Source.Status == store.StatusLive,
+				// Whether THIS add produced a live source — not whether one is standing.
+				// A failed replace leaves the previous source live and reports kept, and
+				// an agent reading `live` off the row would call that a success.
+				"live": r.Reason.OK(), "kept": r.Kept,
 			}, nil
 		}})
 

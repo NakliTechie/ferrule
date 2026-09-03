@@ -245,6 +245,8 @@
   "ui.grants.forOthers": "For a machine on your network",
   "reason.no_balance": "the provider accepted the key and refused the request for payment (HTTP %d): %s",
   "remedy.no_balance": "Your key works — Ferrule listed your models with it. The account has no credit. Top it up and add the source again.",
-  "reason.model_unavailable": "tried %d model(s) and the provider served none of them; the last said (HTTP %d): %s",
-  "remedy.model_unavailable": "Your key works — Ferrule listed your models with it. These particular models are not available to your account or tier. Add the source with --test-model <id> naming one you know you can call."
+  "reason.model_unavailable": "tried %d model(s) and the provider served none of them; the last said: %s",
+  "remedy.model_unavailable": "Your key works — Ferrule listed your models with it. These particular models are not available to your account or tier. Add the source with --test-model <id> naming one you know you can call.",
+  "remedy.model_unavailable_named": "Your key works — Ferrule listed your models with it. The model you named, %s, is not one this account can call: the provider retired it or your tier does not include it. Name a different one, or drop --test-model and let Ferrule pick.",
+  "source.kept": "  kept:   %s is unchanged and still live — this attempt replaced nothing."
 }

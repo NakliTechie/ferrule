@@ -71,7 +71,7 @@ func cmdAdd(args []string) error {
 		failed := 0
 		for _, r := range results {
 			printResult(r)
-			if r.Source.Status != store.StatusLive {
+			if !r.Reason.OK() {
 				failed++
 			}
 		}
@@ -114,7 +114,7 @@ func cmdAdd(args []string) error {
 		return err
 	}
 	printResult(r)
-	if r.Source.Status == store.StatusFailed {
+	if !r.Reason.OK() {
 		os.Exit(exitFailed)
 	}
 	return nil
@@ -176,11 +176,12 @@ func addResult(raw any) (discovery.Result, error) {
 		Source store.Source     `json:"source"`
 		Models int              `json:"models"`
 		Reason discovery.Reason `json:"reason"`
+		Kept   bool             `json:"kept"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return discovery.Result{}, err
 	}
-	r := discovery.Result{Source: doc.Source, Reason: doc.Reason}
+	r := discovery.Result{Source: doc.Source, Reason: doc.Reason, Kept: doc.Kept}
 	r.Models = make([]store.Model, doc.Models)
 	return r, nil
 }
@@ -210,7 +211,9 @@ func detectResults(raw any) ([]discovery.Result, error) {
 }
 
 func printResult(r discovery.Result) {
-	if r.Source.Status == store.StatusLive {
+	// Keyed on the reason, not on the row: a failed replace leaves the previous source
+	// live, and reading success off its status would announce an add that did not happen.
+	if r.Reason.OK() {
 		fmt.Println(i18n.T("source.added", r.Source.Name, r.Source.Provider,
 			i18n.T("source.status.live"), len(r.Models)))
 		return
@@ -219,6 +222,9 @@ func printResult(r discovery.Result) {
 	fmt.Fprintln(os.Stderr, "  code:  ", r.Reason.Code)
 	if r.Reason.Remedy != "" {
 		fmt.Fprintln(os.Stderr, "  remedy:", r.Reason.Remedy)
+	}
+	if r.Kept {
+		fmt.Fprintln(os.Stderr, i18n.T("source.kept", r.Source.Name))
 	}
 }
 

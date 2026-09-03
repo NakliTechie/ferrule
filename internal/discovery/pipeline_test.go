@@ -603,3 +603,165 @@ func TestARefusalIsNamedByWhatTheProviderActuallySaid(t *testing.T) {
 		}
 	})
 }
+
+// A model the provider has retired answers 410, not 404. It is still a fact about that
+// model id and not about the account — and when the caller named the model themselves,
+// the remedy that sends them to --test-model is the remedy telling them to do what they
+// just did. Both halves come from a real NVIDIA answer.
+func TestARetiredModelIsAModelProblemAndTheRemedyKnowsWhoChoseIt(t *testing.T) {
+	const retired = `{"type":"about:blank","title":"Gone","status":410,` +
+		`"detail":"The model 'meta/llama-3.1-8b-instruct' has reached its end of life on ` +
+		`2026-08-26T09:00:00Z and is no longer available."}`
+
+	t.Run("the caller named it", func(t *testing.T) {
+		a := newApp(t)
+		up := mock.New("nvapi-real", "meta/llama-3.1-8b-instruct", "meta/llama-3.3-70b")
+		up.RefuseChat = map[string]mock.Refusal{"": {Status: 410, Body: retired}}
+		defer up.Close()
+
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+			TestModel: "meta/llama-3.1-8b-instruct",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Reason.Code != discovery.CodeModelUnavailable {
+			t.Fatalf("code %q, want model_unavailable — a 410 is about the model", r.Reason.Code)
+		}
+		if !strings.Contains(r.Reason.Remedy, "meta/llama-3.1-8b-instruct") {
+			t.Errorf("the remedy does not name the model the caller chose: %q", r.Reason.Remedy)
+		}
+		if strings.Contains(r.Reason.Remedy, "check your tier, your quota") {
+			t.Errorf("the remedy still blames the account: %q", r.Reason.Remedy)
+		}
+		// One named model means one attempt: guessing past the caller's choice spends
+		// requests to learn something they already told Ferrule.
+		chats := 0
+		for _, req := range up.Requests() {
+			if strings.Contains(req.Path, "chat/completions") {
+				chats++
+			}
+		}
+		if chats != 1 {
+			t.Errorf("%d attempts for one named model, want 1", chats)
+		}
+	})
+
+	t.Run("Ferrule picked it", func(t *testing.T) {
+		a := newApp(t)
+		up := mock.New("nvapi-real", "a/retired", "a/works")
+		up.RefuseChat = map[string]mock.Refusal{"a/retired": {Status: 410, Body: retired}}
+		defer up.Close()
+
+		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Source.Status != store.StatusLive {
+			t.Fatalf("one retired model marked the source %q: %s", r.Source.Status, r.Reason.Message)
+		}
+	})
+}
+
+// The one that cost a working account: adding a source that already exists is a replace,
+// and a failed replace used to demolish what it was replacing. A live NVIDIA with 81
+// models went dark because a later invocation named a model the provider had retired.
+func TestAFailedReplaceLeavesTheLiveSourceStanding(t *testing.T) {
+	a := newApp(t)
+	up := mock.New("nvapi-real", "a/works", "a/also-works")
+	defer up.Close()
+
+	first, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLive(t, a, first)
+
+	// The same experiment the real account was lost to.
+	up.RefuseChat = map[string]mock.Refusal{"": {Status: 410, Body: `{"status":410,"title":"Gone"}`}}
+	second, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+		TestModel: "a/retired",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Reason.OK() {
+		t.Fatal("the failed attempt reported success")
+	}
+	if !second.Kept {
+		t.Error("the result does not say the previous source was kept")
+	}
+
+	got, err := a.DB.SourceByName("nvidia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.StatusLive {
+		t.Fatalf("a failed replace took the source down: status %q, reason %q",
+			got.Status, got.StatusReason)
+	}
+	if got.TestModel != "" {
+		t.Errorf("the failed attempt's test model %q stuck to the standing source", got.TestModel)
+	}
+	models, err := a.DB.Models(got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Errorf("%d models survived, want 2", len(models))
+	}
+	key, err := a.Vault.Get(got.KeyRef)
+	if err != nil || key != "nvapi-real" {
+		t.Errorf("the key did not survive the failed replace: %q (%v)", key, err)
+	}
+}
+
+// A source that needed --test-model to go live needs it again every time it is checked.
+// Holding it in memory made the add work and the first refresh fail.
+func TestTheTestModelSurvivesIntoRefresh(t *testing.T) {
+	a := newApp(t)
+	up := mock.New("nvapi-real", "a/outside-tier", "a/inside-tier")
+	up.RefuseChat = map[string]mock.Refusal{
+		"a/outside-tier": {Status: 404, Body: `{"status":404,"title":"Not Found"}`},
+	}
+	defer up.Close()
+
+	added, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "nvidia", Provider: "nvidia", BaseURL: up.BaseURL(), Key: "nvapi-real",
+		TestModel: "a/inside-tier",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLive(t, a, added)
+
+	// Refreshed through a second process, which is the case that matters: the daemon that
+	// re-checks this source next week is not the one that added it, so an answer held in
+	// the adding engine's memory is an answer that is gone.
+	b, err := app.Open(app.Options{Dir: a.Dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	stored, err := b.DB.SourceByName("nvidia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TestModel != "a/inside-tier" {
+		t.Fatalf("the stored source does not remember its test model: %q", stored.TestModel)
+	}
+	refreshed, err := b.Discovery.Refresh(context.Background(), stored.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !refreshed.Reason.OK() {
+		t.Fatalf("the refresh forgot which model this account can call: %s", refreshed.Reason.Message)
+	}
+}

@@ -213,8 +213,10 @@ func classifyRefusal(code int, body string) Reason {
 		return newReason(CodeBadKey, code)
 	case code == http.StatusPaymentRequired:
 		return newReason(CodeNoBalance, code, body)
-	case code == http.StatusNotFound:
-		// Model-level, and the caller decides whether to try another one.
+	case code == http.StatusNotFound || code == http.StatusGone:
+		// Model-level, and the caller decides whether to try another one. NVIDIA answers
+		// 404 for a model outside your tier and 410 for one it has retired; both are
+		// facts about that model id and neither says anything about the account.
 		return Reason{Code: CodeModelUnavailable, Message: CodeBadStatus.message(code, body),
 			Remedy: CodeModelUnavailable.remedy()}
 	}

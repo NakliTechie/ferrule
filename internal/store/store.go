@@ -64,6 +64,7 @@ var added = []struct{ table, column, decl string }{
 	{"sources", "status_code", `TEXT NOT NULL DEFAULT ''`},
 	{"sources", "status_remedy", `TEXT NOT NULL DEFAULT ''`},
 	{"sources", "insecure", `INTEGER NOT NULL DEFAULT 0`},
+	{"sources", "test_model", `TEXT NOT NULL DEFAULT ''`},
 }
 
 func (d *DB) migrate() error {
@@ -130,8 +131,12 @@ type Source struct {
 	StatusRemedy string `json:"status_remedy"`
 	Detected     bool   `json:"detected"`
 	Insecure     bool   `json:"insecure"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	// TestModel is the model this source must be tested with, when the account's tier
+	// does not include whichever ones Ferrule would have picked. Stored, so a refresh
+	// a month from now asks the same question the successful add asked.
+	TestModel string `json:"test_model,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // PutSource inserts or updates a source by id.
@@ -141,17 +146,18 @@ func (d *DB) PutSource(s Source) error {
 	}
 	s.UpdatedAt = now()
 	_, err := d.sql.Exec(`
-INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO sources (id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at,test_model)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name, provider=excluded.provider, kind=excluded.kind, lane=excluded.lane,
   base_url=excluded.base_url, key_ref=excluded.key_ref, status=excluded.status,
   status_code=excluded.status_code, status_reason=excluded.status_reason,
   status_remedy=excluded.status_remedy, detected=excluded.detected,
-  insecure=excluded.insecure, updated_at=excluded.updated_at`,
+  insecure=excluded.insecure, updated_at=excluded.updated_at,
+  test_model=excluded.test_model`,
 		s.ID, s.Name, s.Provider, s.Kind, s.Lane, s.BaseURL, s.KeyRef, s.Status, s.StatusCode,
 		s.StatusReason, s.StatusRemedy, boolInt(s.Detected), boolInt(s.Insecure),
-		s.CreatedAt, s.UpdatedAt)
+		s.CreatedAt, s.UpdatedAt, s.TestModel)
 	return err
 }
 
@@ -164,16 +170,33 @@ WHERE id=?`, status, code, reason, remedy, now(), id)
 	return err
 }
 
-const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at`
+const sourceCols = `id,name,provider,kind,lane,base_url,key_ref,status,status_code,status_reason,status_remedy,detected,insecure,created_at,updated_at,test_model`
+
+// sourceScan holds the Scan destinations for the columns in sourceCols, in that order.
+//
+// It exists so the column list and its destinations cannot drift apart. They did: adding
+// one column to sourceCols left a hand-written Scan in FindModel one argument short, and
+// the failure surfaced as every routed request answering 503.
+type sourceScan struct {
+	s          Source
+	det, insec int
+}
+
+func (x *sourceScan) args() []any {
+	return []any{&x.s.ID, &x.s.Name, &x.s.Provider, &x.s.Kind, &x.s.Lane, &x.s.BaseURL,
+		&x.s.KeyRef, &x.s.Status, &x.s.StatusCode, &x.s.StatusReason, &x.s.StatusRemedy,
+		&x.det, &x.insec, &x.s.CreatedAt, &x.s.UpdatedAt, &x.s.TestModel}
+}
+
+func (x *sourceScan) source() Source {
+	x.s.Detected, x.s.Insecure = x.det != 0, x.insec != 0
+	return x.s
+}
 
 func scanSource(rows interface{ Scan(...any) error }) (Source, error) {
-	var s Source
-	var det, insec int
-	err := rows.Scan(&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef,
-		&s.Status, &s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &insec,
-		&s.CreatedAt, &s.UpdatedAt)
-	s.Detected, s.Insecure = det != 0, insec != 0
-	return s, err
+	var x sourceScan
+	err := rows.Scan(x.args()...)
+	return x.source(), err
 }
 
 // Sources lists every source, newest first.
@@ -330,20 +353,19 @@ WHERE m.model_id = ? AND s.status = 'live'`, modelID)
 	var found []pair
 	for rows.Next() {
 		var m Model
-		var s Source
+		var x sourceScan
 		var caps, mods string
-		var as, det, insec int
-		if err := rows.Scan(&m.SourceID, &m.ModelID, &m.DisplayName, &caps, &mods, &m.ContextLength,
-			&as, &m.InCost, &m.OutCost, &m.ClassifiedBy, &m.UpdatedAt,
-			&s.ID, &s.Name, &s.Provider, &s.Kind, &s.Lane, &s.BaseURL, &s.KeyRef, &s.Status,
-			&s.StatusCode, &s.StatusReason, &s.StatusRemedy, &det, &insec, &s.CreatedAt,
-			&s.UpdatedAt); err != nil {
+		var as int
+		args := append([]any{&m.SourceID, &m.ModelID, &m.DisplayName, &caps, &mods,
+			&m.ContextLength, &as, &m.InCost, &m.OutCost, &m.ClassifiedBy, &m.UpdatedAt},
+			x.args()...)
+		if err := rows.Scan(args...); err != nil {
 			return Model{}, Source{}, err
 		}
-		m.Async, s.Detected, s.Insecure = as != 0, det != 0, insec != 0
+		m.Async = as != 0
 		_ = json.Unmarshal([]byte(caps), &m.Capabilities)
 		_ = json.Unmarshal([]byte(mods), &m.Modalities)
-		found = append(found, pair{m, s})
+		found = append(found, pair{m, x.source()})
 	}
 	if err := rows.Err(); err != nil {
 		return Model{}, Source{}, err

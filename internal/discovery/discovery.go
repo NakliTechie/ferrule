@@ -36,7 +36,6 @@ type Engine struct {
 
 	mu             sync.RWMutex
 	detectOverride map[string][]string
-	testModel      string
 	scanning       int
 	onStep         func(Step)
 }
@@ -123,6 +122,10 @@ type Result struct {
 	// Reason is the typed failure when Source.Status is failed: a code to branch on, a
 	// message for a person, and the exact next move.
 	Reason Reason `json:"reason,omitzero"`
+	// Kept reports that this attempt failed and the source's previous, verified
+	// configuration was left standing rather than demolished. The Source in this result
+	// is that previous one, still live.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // Add runs the whole pipeline for one source. A failure is persisted as a `failed`
@@ -151,10 +154,17 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	if name == "" {
 		name = spec.ID
 	}
-	// A repeated add of the same name updates that source rather than colliding.
+	// A repeated add of the same name updates that source rather than colliding — and a
+	// replace that fails must not cost the caller the source it is replacing, so what is
+	// standing gets read out first.
 	id := ""
+	var prior store.Source
+	priorKey, havePrior := "", false
 	if existing, err := e.db.SourceByName(name); err == nil {
-		id = existing.ID
+		id, prior, havePrior = existing.ID, existing, true
+		if existing.KeyRef != "" {
+			priorKey, _ = e.vault.Get(existing.KeyRef)
+		}
 	} else {
 		b := make([]byte, 6)
 		if _, err := rand.Read(b); err != nil {
@@ -166,7 +176,7 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 	src := store.Source{
 		ID: id, Name: name, Provider: spec.ID, Kind: spec.Kind, Lane: spec.Lane,
 		BaseURL: baseURL, Status: store.StatusProbing, Detected: req.Detected,
-		Insecure: !checkEndpoint(baseURL, key != "").OK(),
+		Insecure: !checkEndpoint(baseURL, key != "").OK(), TestModel: req.TestModel,
 	}
 	if key != "" {
 		src.KeyRef = vault.Ref(id)
@@ -192,11 +202,12 @@ func (e *Engine) Add(ctx context.Context, req AddRequest) (Result, error) {
 		return Result{}, err
 	}
 
-	e.mu.Lock()
-	e.testModel = req.TestModel
-	e.mu.Unlock()
 	res, reason := e.run(ctx, spec, src, key)
 	if !reason.OK() {
+		if havePrior && prior.Status == store.StatusLive {
+			return Result{Source: e.restore(prior, priorKey, key != ""), Reason: reason,
+				Kept: true}, nil
+		}
 		src = e.fail(src, reason)
 		return Result{Source: src, Reason: reason}, nil
 	}
@@ -214,6 +225,26 @@ func (e *Engine) fail(src store.Source, r Reason) store.Source {
 	src.Status, src.StatusCode, src.StatusReason, src.StatusRemedy =
 		store.StatusFailed, r.Code_(), r.Message, r.Remedy
 	return src
+}
+
+// restore puts a source back exactly as a failed replace found it.
+//
+// Adding a source that already exists is a replace, and a failed replace used to leave
+// the previous one demolished: a working NVIDIA account with 81 live models went dark
+// because one later invocation named a model the provider had since retired. Nothing in
+// that answer made the standing configuration untrue, so nothing about it changes — the
+// failure is still reported, loudly, with its code and its remedy.
+func (e *Engine) restore(prior store.Source, key string, wroteKey bool) store.Source {
+	switch {
+	case prior.KeyRef != "" && key != "":
+		// The attempt overwrote the vault entry under the same ref; put the old one back.
+		_ = e.vault.Put(prior.KeyRef, key)
+	case prior.KeyRef == "" && wroteKey:
+		// The attempt introduced a key this source never had. Nothing will point at it.
+		_ = e.vault.Delete(vault.Ref(prior.ID))
+	}
+	_ = e.db.PutSource(prior)
+	return prior
 }
 
 func (e *Engine) live(src store.Source, n int) store.Source {
@@ -348,10 +379,7 @@ const maxTestModels = 4
 // with it. A 404 is about a model. A 401 or a 402 is about the account, and trying
 // another model would only spend more requests learning the same thing.
 func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source, key string, models []store.Model) Reason {
-	e.mu.RLock()
-	named := e.testModel
-	e.mu.RUnlock()
-
+	named := src.TestModel
 	candidates := testCandidates(spec, models)
 	if named != "" {
 		// A named model is the only one tried: the person is telling Ferrule which one
@@ -391,9 +419,15 @@ func (e *Engine) test(ctx context.Context, spec provider.Spec, src store.Source,
 	}
 
 	if last.Code == CodeModelUnavailable {
+		if named != "" {
+			// The caller chose this one. Sending them back to --test-model, which is what
+			// they just used, is the remedy telling them to do what they did.
+			return Reason{Code: CodeModelUnavailable, Message: last.Message,
+				Remedy: i18n.T("remedy.model_unavailable_named", named)}
+		}
 		// Every model tried was refused individually. Say how many, so "not available"
 		// does not read as "we barely looked".
-		return newReason(CodeModelUnavailable, tried, http.StatusNotFound, last.Message)
+		return newReason(CodeModelUnavailable, tried, last.Message)
 	}
 	if key == "" {
 		return last.localRemedy()
