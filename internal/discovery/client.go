@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
 	"ferrule/internal/store"
 )
@@ -80,7 +81,7 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 		return nil, newReason(CodeRedirect, trimKnown(string(raw), key))
 	}
 	if code != http.StatusOK {
-		return nil, newReason(CodeBadStatus, code, trimKnown(string(raw), key))
+		return nil, reasonf(CodeBadStatus, describeStatus(code, trimKnown(string(raw), key)))
 	}
 	var doc struct {
 		Data []struct {
@@ -199,6 +200,17 @@ func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key
 	return false, classifyRefusal(code, trimKnown(string(raw), key))
 }
 
+// describeStatus renders a refusal. A provider that sends no body leaves the message
+// trailing off after the colon, which reads as Ferrule having lost the reason rather than
+// as there never having been one — the same trailing-off the router produced for a real
+// NVIDIA 500 with an empty body.
+func describeStatus(code int, body string) string {
+	if strings.TrimSpace(body) == "" {
+		return i18n.T("reason.bad_status_no_body", code)
+	}
+	return CodeBadStatus.message(code, body)
+}
+
 // classifyRefusal names what the provider actually refused.
 //
 // A single "test_failed" collapsed three different situations with three different next
@@ -217,10 +229,10 @@ func classifyRefusal(code int, body string) Reason {
 		// Model-level, and the caller decides whether to try another one. NVIDIA answers
 		// 404 for a model outside your tier and 410 for one it has retired; both are
 		// facts about that model id and neither says anything about the account.
-		return Reason{Code: CodeModelUnavailable, Message: CodeBadStatus.message(code, body),
+		return Reason{Code: CodeModelUnavailable, Message: describeStatus(code, body),
 			Remedy: CodeModelUnavailable.remedy()}
 	}
-	return newReason(CodeTestFailed, CodeBadStatus.message(code, body))
+	return newReason(CodeTestFailed, describeStatus(code, body))
 }
 
 // timeoutOrFailure names what actually went wrong. "It refused" and "it never answered"

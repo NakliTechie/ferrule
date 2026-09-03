@@ -406,3 +406,32 @@ func TestModelListingOmitsAliasesItCannotServe(t *testing.T) {
 		t.Error("an alias with no reachable rung was advertised")
 	}
 }
+
+// An upstream that never starts answering must not hold the caller open forever, and one
+// that fails without saying why must not be reported as though Ferrule lost the reason.
+//
+// Both came out of one real request: NVIDIA held it for 196 seconds and then answered 500
+// with an empty body, and the app got "upstream nvidia failed: " after three minutes of
+// nothing. The clock is the source's kind — a local runtime loading an 8B model into
+// memory is slow for a good reason and gets a longer one.
+func TestAnUpstreamThatSaysNothingIsBoundedAndNamed(t *testing.T) {
+	t.Run("no body is said out loud", func(t *testing.T) {
+		r := newRig(t)
+		up := mock.New("", "qwen3:8b")
+		defer up.Close()
+		r.addLocal(t, "ollama", up)
+		tok := r.mint(t, "app")
+		// It goes wrong after it was proven, which is how upstreams actually break.
+		up.Fail, up.EmptyBody = true, true
+
+		_, raw := r.chat(t, tok, "qwen3:8b", false)
+		body := string(raw)
+		if strings.Contains(body, "failed: \"") || strings.HasSuffix(strings.TrimSpace(body), `failed: "}}`) {
+			t.Errorf("the error trails off as though the reason was lost: %s", body)
+		}
+		if !strings.Contains(body, "sent no body") {
+			t.Errorf("the error does not say the upstream explained nothing: %s", body)
+		}
+	})
+
+}

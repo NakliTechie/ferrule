@@ -27,9 +27,10 @@ import (
 
 // Router serves the OpenAI-compatible endpoints.
 type Router struct {
-	db     *store.DB
-	vault  vault.Vault
-	client *http.Client
+	db    *store.DB
+	vault vault.Vault
+	cloud *http.Client
+	local *http.Client
 }
 
 // New builds a Router.
@@ -39,19 +40,50 @@ type Router struct {
 func New(db *store.DB, v vault.Vault) *Router {
 	return &Router{
 		db: db, vault: v,
-		// No overall timeout: a long generation is a legitimate request. Per-attempt
-		// deadlines come from the caller's context.
-		//
-		// Redirects are refused: every request carries a provider key, and a 3xx would
-		// hand it to whatever host the response names. Go strips Authorization across
-		// hosts but not a custom header like Anthropic's x-api-key.
-		client: &http.Client{
-			Timeout: 0,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
+		cloud: upstreamClient(cloudFirstByte),
+		local: upstreamClient(localFirstByte),
+	}
+}
+
+// How long an upstream may take to START answering. The body is then unbounded, because a
+// long generation is a legitimate request and one that has begun to stream is one the
+// caller can watch progress.
+//
+// Ferrule had no bound of its own here, and a real NVIDIA request held for 196 seconds
+// before answering 500 with an empty body — three minutes in which the calling app had
+// nothing to show and no way to know anything was wrong. A local runtime is a different
+// animal: its first token waits on the model loading into memory, which on a laptop is
+// minutes, so it gets its own clock rather than a cloud provider's.
+const (
+	cloudFirstByte = 2 * time.Minute
+	localFirstByte = 10 * time.Minute
+)
+
+// upstreamClient builds a client that bounds the wait for response headers and nothing
+// else. Client.Timeout would cover the body too and would cut long generations short;
+// a context deadline would do the same, since the request context governs the body read.
+//
+// Redirects are refused: every request carries a provider key, and a 3xx would hand it to
+// whatever host the response names. Go strips Authorization across hosts but not a custom
+// header like Anthropic's x-api-key.
+func upstreamClient(firstByte time.Duration) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = firstByte
+	return &http.Client{
+		Timeout:   0,
+		Transport: tr,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// clientFor picks the clock this source is judged by.
+func (r *Router) clientFor(s store.Source) *http.Client {
+	if s.Kind == store.KindLocal {
+		return r.local
+	}
+	return r.cloud
 }
 
 // Mount registers the raw-tokens lane on mux.
@@ -295,7 +327,7 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 	}
 	spec.Authorize(upReq, key)
 
-	resp, err := r.client.Do(upReq)
+	resp, err := r.clientFor(t.Source).Do(upReq)
 	if actual, ok := dialed.Load().(string); ok && actual != "" {
 		entry.Egress = actual
 	}
@@ -322,6 +354,11 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.RespBytes = resp.StatusCode, len(raw)
 		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, redactKnown(string(raw), key))
+		if len(bytes.TrimSpace(raw)) == 0 {
+			// "upstream nvidia failed: " reads as Ferrule having lost the reason. The
+			// upstream sent none, and saying so is the honest version.
+			entry.Err = i18n.T("route.upstreamNoBody", t.Source.Name, resp.StatusCode)
+		}
 		r.complete(entryID, entry)
 		// 5xx and 429 are the upstream's problem; the next rung may well answer.
 		retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests

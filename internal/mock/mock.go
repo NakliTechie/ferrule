@@ -33,6 +33,8 @@ type Provider struct {
 	Models []string
 	// Fail makes every request answer 500, to exercise ladder fallback.
 	Fail bool
+	// EmptyBody makes Fail answer with no body at all, which is what a real provider did.
+	EmptyBody bool
 	// ChunkDelay spaces out streamed chunks, so a caller can prove it is receiving them
 	// as they are produced rather than in one buffered lump at the end.
 	ChunkDelay time.Duration
@@ -104,6 +106,9 @@ func (p *Provider) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Fail {
 		w.WriteHeader(http.StatusInternalServerError)
+		if p.EmptyBody {
+			return
+		}
 		io.WriteString(w, `{"error":{"message":"upstream is having a day"}}`)
 		return
 	}
