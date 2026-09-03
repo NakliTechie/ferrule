@@ -28,7 +28,8 @@ func cmdAdd(args []string) error {
 	// is piped — which is how a password manager hands one over.
 	detect := fs.Bool("detect", false, "scan localhost for running runtimes and adopt them")
 	insecure := fs.Bool("insecure", false, "acknowledge that this key will travel over http to a host that is not this machine")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
 		return err
 	}
 
@@ -47,7 +48,7 @@ func cmdAdd(args []string) error {
 		fmt.Fprintf(os.Stderr, "  %s\n", st.Note)
 	})
 
-	if *detect || fs.NArg() == 0 {
+	if *detect || len(positional) == 0 {
 		fmt.Println(i18n.T("serve.detecting"))
 		results, err := a.Discovery.Detect(ctx)
 		if err != nil {
@@ -70,7 +71,7 @@ func cmdAdd(args []string) error {
 		return nil
 	}
 
-	pid := fs.Arg(0)
+	pid := positional[0]
 	spec, ok := provider.Get(pid)
 	if !ok {
 		// Returned as a typed Reason, not a formatted string: the exit code is derived
@@ -141,12 +142,13 @@ func cmdLs(args []string) error {
 	local := fs.Bool("local", false, "only on-machine models")
 	cloud := fs.Bool("cloud", false, "only off-machine models")
 	capFilter := fs.String("cap", "", "only models with this capability")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
 		return err
 	}
 	what := "models"
-	if fs.NArg() > 0 {
-		what = fs.Arg(0)
+	if len(positional) > 0 {
+		what = positional[0]
 	}
 
 	a, err := open()

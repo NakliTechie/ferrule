@@ -325,3 +325,49 @@ func repoRoot(t *testing.T) string {
 	t.Fatal("could not find the module root")
 	return ""
 }
+
+// A documented flag must take effect wherever it is written.
+//
+// Go's flag package stops at the first non-flag argument, so `ferrule add anthropic
+// -base-url http://…` parsed no flags at all and silently used the provider's own
+// endpoint. For -base-url that is a flag lying about where a credential is being sent,
+// and it was invisible: no error, no warning, just the wrong destination.
+func TestFlagsApplyOnEitherSideOfThePositional(t *testing.T) {
+	bin := buildFerrule(t)
+
+	run := func(args ...string) string {
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), "FERRULE_CONFIG_DIR="+t.TempDir())
+		cmd.Stdin = strings.NewReader("sk-ant-not-a-real-key\n")
+		out, _ := cmd.CombinedOutput()
+		return string(out)
+	}
+
+	// A reserved .invalid name: not loopback, so the insecure-endpoint guard applies, and
+	// it fails DNS immediately rather than hanging the way an unroutable IP does. If the
+	// flag is honoured the guard refuses before any request; if it is ignored the run
+	// reaches the provider's real endpoint instead.
+	const host = "ferrule-nowhere.invalid"
+	const url = "http://" + host + "/v1"
+	for _, args := range [][]string{
+		{"add", "anthropic", "-base-url", url},
+		{"add", "-base-url", url, "anthropic"},
+		{"add", "anthropic", "-base-url=" + url},
+	} {
+		out := run(args...)
+		if !strings.Contains(out, host) {
+			t.Errorf("`ferrule %s` did not use the base URL it was given:\n%s",
+				strings.Join(args, " "), out)
+		}
+		if strings.Contains(out, "api.anthropic.com") {
+			t.Errorf("`ferrule %s` sent the key to the provider's own endpoint instead:\n%s",
+				strings.Join(args, " "), out)
+		}
+	}
+
+	// A boolean flag after the positional must also register.
+	out := run("add", "anthropic", "-base-url", url, "-insecure")
+	if strings.Contains(out, "must be https") {
+		t.Errorf("-insecure after the positional was ignored:\n%s", out)
+	}
+}

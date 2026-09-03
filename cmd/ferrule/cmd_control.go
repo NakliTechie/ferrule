@@ -28,17 +28,18 @@ func dispatch(name string, args api.Args) (any, error) {
 func cmdAlias(args []string) error {
 	fs := flag.NewFlagSet("alias", flag.ContinueOnError)
 	remove := fs.Bool("rm", false, "remove the alias")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() == 0 {
+	if len(positional) == 0 {
 		res, err := dispatch("list_aliases", api.Args{})
 		if err != nil {
 			return err
 		}
 		return printAliases(res)
 	}
-	name := fs.Arg(0)
+	name := positional[0]
 	if *remove {
 		_, err := dispatch("remove_alias", api.Args{"name": name})
 		if err != nil {
@@ -47,15 +48,15 @@ func cmdAlias(args []string) error {
 		fmt.Println(i18n.T("alias.removed", name))
 		return nil
 	}
-	if fs.NArg() == 1 {
+	if len(positional) == 1 {
 		res, err := dispatch("get_alias", api.Args{"name": name})
 		if err != nil {
 			return err
 		}
 		return printAliases(map[string]any{"aliases": []any{res}})
 	}
-	ladder := make([]any, 0, fs.NArg()-1)
-	for _, r := range fs.Args()[1:] {
+	ladder := make([]any, 0, len(positional)-1)
+	for _, r := range positional[1:] {
 		ladder = append(ladder, r)
 	}
 	res, err := dispatch("set_alias", api.Args{"name": name, "ladder": ladder})
@@ -115,27 +116,29 @@ func printAliases(res any) error {
 func cmdRemap(args []string) error {
 	fs := flag.NewFlagSet("remap", flag.ContinueOnError)
 	remove := fs.Bool("rm", false, "remove the remap")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() == 0 {
+	if len(positional) == 0 {
 		return printJSON(dispatch("list_remaps", api.Args{}))
 	}
 	if *remove {
-		_, err := dispatch("remove_remap", api.Args{"from": fs.Arg(0)})
+		_, err := dispatch("remove_remap", api.Args{"from": positional[0]})
 		return err
 	}
-	if fs.NArg() < 2 {
+	if len(positional) < 2 {
 		return fmt.Errorf("%s", i18n.T("cli.needArg", "remap <from-model> <alias | source/model>"))
 	}
-	return printJSON(dispatch("set_remap", api.Args{"from": fs.Arg(0), "to": fs.Arg(1)}))
+	return printJSON(dispatch("set_remap", api.Args{"from": positional[0], "to": positional[1]}))
 }
 
 func cmdKey(args []string) error {
 	fs := flag.NewFlagSet("key", flag.ContinueOnError)
 	revoke := fs.String("revoke", "", "revoke the app token with this id")
 	list := fs.Bool("ls", false, "list app tokens")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseWithSubject(fs, args)
+	if err != nil {
 		return err
 	}
 	if *revoke != "" {
@@ -145,16 +148,16 @@ func cmdKey(args []string) error {
 		fmt.Println(i18n.T("grant.revoked", *revoke))
 		return nil
 	}
-	if *list || fs.NArg() == 0 {
+	if *list || len(positional) == 0 {
 		return printGrants()
 	}
-	res, err := dispatch("mint_grant", api.Args{"app": fs.Arg(0)})
+	res, err := dispatch("mint_grant", api.Args{"app": positional[0]})
 	if err != nil {
 		return err
 	}
 	m, _ := res.(map[string]any)
 	tok, _ := m["token"].(string)
-	fmt.Println(i18n.T("grant.minted", fs.Arg(0), tok,
+	fmt.Println(i18n.T("grant.minted", positional[0], tok,
 		fmt.Sprintf("127.0.0.1:%d", envPort())))
 	return nil
 }
