@@ -92,6 +92,13 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T("source.unknownProvider", src.Provider, provider.Names()), http.StatusBadGateway)
 		return
 	}
+	// Scope check before the vault is touched: the key is not fetched for a call this
+	// mount will not make.
+	if !allowed(src.Provider, r.Method, tail) {
+		http.Error(w, i18n.T("passthrough.methodRefused", r.Method+" /"+tail, src.Name),
+			http.StatusForbidden)
+		return
+	}
 	key := ""
 	if src.KeyRef != "" {
 		if key, err = h.vault.Get(src.KeyRef); err != nil {

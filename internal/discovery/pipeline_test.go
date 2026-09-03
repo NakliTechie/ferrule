@@ -334,3 +334,34 @@ func TestScanningDeadPortsIsFast(t *testing.T) {
 		t.Errorf("scanning 9 dead ports took %v; a closed port answers in milliseconds", elapsed)
 	}
 }
+
+// A base URL is stored in SQLite and travels in a configuration export, so it must never
+// become a place to hide a credential. The vault is the only place one belongs.
+func TestCredentialsCannotRideInABaseURL(t *testing.T) {
+	a := newApp(t)
+	for _, u := range []string{
+		"https://user:sk-secret@api.example.com/v1",
+		"https://api.example.com/v1?api_key=sk-secret",
+		"https://api.example.com/v1?access_token=abc123",
+	} {
+		_, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "x", Provider: "openai-compatible", BaseURL: u, Key: "sk-real",
+		})
+		if err == nil {
+			t.Errorf("%s was accepted", u)
+			continue
+		}
+		r, ok := err.(discovery.Reason)
+		if !ok || r.Code != discovery.CodeCredentialInURL {
+			t.Errorf("%s refused as %v, want credential_in_url", u, err)
+		}
+	}
+	// Nothing was written.
+	srcs, err := a.DB.Sources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 0 {
+		t.Fatalf("%d source(s) persisted from a refused add", len(srcs))
+	}
+}

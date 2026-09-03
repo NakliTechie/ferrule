@@ -20,6 +20,21 @@ func checkEndpoint(baseURL string, needsKey bool) Reason {
 	if err != nil || u.Host == "" {
 		return newReason(CodeNeedsBaseURL)
 	}
+	// A base URL is stored in SQLite and travels in a configuration export, so it must
+	// never be a place to hide a credential. `https://user:pass@host/v1` and
+	// `https://host/v1?api_key=…` both put one outside the vault, which is the one
+	// boundary this product exists to hold.
+	if u.User != nil {
+		return newReason(CodeCredentialInURL, "userinfo")
+	}
+	for k := range u.Query() {
+		l := strings.ToLower(k)
+		if strings.Contains(l, "key") || strings.Contains(l, "token") ||
+			strings.Contains(l, "secret") || strings.Contains(l, "password") ||
+			strings.Contains(l, "auth") {
+			return newReason(CodeCredentialInURL, k)
+		}
+	}
 	if u.Scheme == "https" {
 		return Reason{Code: CodeOK}
 	}

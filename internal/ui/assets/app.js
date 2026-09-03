@@ -563,9 +563,13 @@ function renderUsage(pane, bar) {
   const egressCard = el("div", { class: "card" },
     el("h3", { text: T("ui.egress.title") }),
     el("p", { class: "note", text: T("ui.egress.body") }),
+    // The filled portion is what stayed on the machine, so the accessible name says
+    // that. Labelling it "off-machine share" while filling it with the local share
+    // misreports the one number this view exists for, to exactly the readers who cannot
+    // see the figures printed underneath.
     el("progress", { class: "meter", "data-cloud": cloudPct > 50 ? "" : null,
       value: String(100 - cloudPct), max: "100",
-      "aria-label": T("ui.egress.offShare") }),
+      "aria-label": T("ui.egress.meterLabel", 100 - cloudPct) }),
     el("dl", { class: "kv" },
       el("dt", { text: T("usage.egress.local") }),
       el("dd", { text: T("ui.egress.line", e.local.requests || 0, fmtBytes((e.local.req_bytes || 0) + (e.local.resp_bytes || 0))) }),

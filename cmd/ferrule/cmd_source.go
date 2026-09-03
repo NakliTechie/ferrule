@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"golang.org/x/term"
 
+	"ferrule/internal/api"
 	"ferrule/internal/discovery"
 	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
@@ -39,6 +41,7 @@ func cmdAdd(args []string) error {
 	}
 	defer a.Close()
 	ctx := context.Background()
+	bus := api.New(a).Bus()
 
 	a.Discovery.OnStep(func(st discovery.Step) {
 		if st.Source != "" {
@@ -50,7 +53,13 @@ func cmdAdd(args []string) error {
 
 	if *detect || len(positional) == 0 {
 		fmt.Println(i18n.T("serve.detecting"))
-		results, err := a.Discovery.Detect(ctx)
+		// Through the bus, like every other door: it is the same core, and this is what
+		// puts the operation in the control log.
+		raw, err := bus.Dispatch(ctx, "detect_local", api.Args{}, api.DoorCLI, "cli")
+		if err != nil {
+			return err
+		}
+		results, err := detectResults(raw)
 		if err != nil {
 			return err
 		}
@@ -85,9 +94,14 @@ func cmdAdd(args []string) error {
 			return err
 		}
 	}
-	r, err := a.Discovery.Add(ctx, discovery.AddRequest{
-		Name: *name, Provider: pid, BaseURL: *base, Key: k, AllowInsecure: *insecure,
-	})
+	raw, err := bus.Dispatch(ctx, "add_source", api.Args{
+		"name": *name, "provider": pid, "base_url": *base, "key": k,
+		"allow_insecure": *insecure,
+	}, api.DoorCLI, "cli")
+	if err != nil {
+		return err
+	}
+	r, err := addResult(raw)
 	if err != nil {
 		return err
 	}
@@ -100,6 +114,93 @@ func cmdAdd(args []string) error {
 
 // printResult prints one pipeline outcome. A failure prints its code, its message, and
 // its remedy — what happened, what it means, and the exact next move.
+type briefSource struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Where    string `json:"where"`
+	Lane     string `json:"lane"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
+}
+
+type briefModel struct {
+	Model         string   `json:"model"`
+	Source        string   `json:"source"`
+	Where         string   `json:"where"`
+	Capabilities  []string `json:"capabilities"`
+	ContextLength int      `json:"context_length"`
+	InCost        float64  `json:"in_cost_per_mtok"`
+	OutCost       float64  `json:"out_cost_per_mtok"`
+}
+
+func sourcesOf(raw any) ([]briefSource, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Sources []briefSource `json:"sources"`
+	}
+	err = json.Unmarshal(b, &doc)
+	return doc.Sources, err
+}
+
+func modelsOf(raw any) ([]briefModel, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Models []briefModel `json:"models"`
+	}
+	err = json.Unmarshal(b, &doc)
+	return doc.Models, err
+}
+
+// addResult and detectResults re-hydrate the bus's JSON-shaped answer. The bus returns
+// what every door sees; the CLI renders it.
+func addResult(raw any) (discovery.Result, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return discovery.Result{}, err
+	}
+	var doc struct {
+		Source store.Source     `json:"source"`
+		Models int              `json:"models"`
+		Reason discovery.Reason `json:"reason"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return discovery.Result{}, err
+	}
+	r := discovery.Result{Source: doc.Source, Reason: doc.Reason}
+	r.Models = make([]store.Model, doc.Models)
+	return r, nil
+}
+
+func detectResults(raw any) ([]discovery.Result, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Detected []struct {
+			Source store.Source     `json:"source"`
+			Models int              `json:"models"`
+			Reason discovery.Reason `json:"reason"`
+		} `json:"detected"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	out := make([]discovery.Result, 0, len(doc.Detected))
+	for _, d := range doc.Detected {
+		r := discovery.Result{Source: d.Source, Reason: d.Reason}
+		r.Models = make([]store.Model, d.Models)
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 func printResult(r discovery.Result) {
 	if r.Source.Status == store.StatusLive {
 		fmt.Println(i18n.T("source.added", r.Source.Name, r.Source.Provider,
@@ -156,20 +257,26 @@ func cmdLs(args []string) error {
 		return err
 	}
 	defer a.Close()
+	bus := api.New(a).Bus()
+	ctx := context.Background()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	defer w.Flush()
 
 	switch what {
 	case "sources", "source":
-		srcs, err := a.DB.Sources()
+		raw, err := bus.Dispatch(ctx, "list_sources", api.Args{}, api.DoorCLI, "cli")
+		if err != nil {
+			return err
+		}
+		srcs, err := sourcesOf(raw)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintln(w, "NAME\tPROVIDER\tWHERE\tLANE\tSTATUS\tDETAIL")
 		for _, s := range srcs {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, s.Kind, s.Lane,
-				i18n.SourceStatus(s.Status), s.StatusReason)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, s.Where, s.Lane,
+				i18n.SourceStatus(s.Status), s.Reason)
 		}
 		return nil
 	case "aliases", "alias":
@@ -192,34 +299,25 @@ func cmdLs(args []string) error {
 		}
 		return nil
 	case "models", "model":
-		srcs, err := a.DB.Sources()
+		where := ""
+		if *local {
+			where = store.KindLocal
+		} else if *cloud {
+			where = store.KindCloud
+		}
+		raw, err := bus.Dispatch(ctx, "list_models",
+			api.Args{"where": where, "capability": *capFilter}, api.DoorCLI, "cli")
 		if err != nil {
 			return err
 		}
-		byID := map[string]store.Source{}
-		for _, s := range srcs {
-			byID[s.ID] = s
-		}
-		models, err := a.DB.Models("")
+		models, err := modelsOf(raw)
 		if err != nil {
 			return err
 		}
-		sort.SliceStable(models, func(i, j int) bool {
-			return models[i].ModelID < models[j].ModelID
-		})
+		sort.SliceStable(models, func(i, j int) bool { return models[i].Model < models[j].Model })
 		fmt.Fprintln(w, "MODEL\tSOURCE\tWHERE\tCAPABILITIES\tCONTEXT\tIN $/M\tOUT $/M")
 		for _, m := range models {
-			s := byID[m.SourceID]
-			if *local && s.Kind != store.KindLocal {
-				continue
-			}
-			if *cloud && s.Kind != store.KindCloud {
-				continue
-			}
-			if *capFilter != "" && !containsStr(m.Capabilities, *capFilter) {
-				continue
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.ModelID, s.Name, s.Kind,
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Model, m.Source, m.Where,
 				strings.Join(m.Capabilities, ","), num(m.ContextLength),
 				money(m.InCost), money(m.OutCost))
 		}

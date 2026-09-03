@@ -13,6 +13,7 @@ import (
 
 	"ferrule/internal/api"
 	"ferrule/internal/app"
+	"ferrule/internal/i18n"
 	"ferrule/internal/passthrough"
 	"ferrule/internal/router"
 	"ferrule/internal/store"
@@ -38,8 +39,17 @@ func New(a *app.App, o Options) (*Server, error) {
 	if addr == "" {
 		addr = fmt.Sprintf("127.0.0.1:%d", 8899)
 	}
-	// Localhost only by default (§4.5). A person who wants otherwise says so explicitly
-	// in the address they pass.
+	// Localhost only, and not merely by default.
+	//
+	// The control surface is safe because of where it is reachable from, not because of
+	// what it checks: the panel is handed this run's control token inside the page the
+	// daemon serves it, and the MCP door has no authentication of its own because its
+	// clients are local agents. Both assumptions hold exactly as long as the listener is
+	// loopback. `--host 0.0.0.0` would therefore publish administrative control of every
+	// key the person owns, so it is refused rather than warned about.
+	if err := requireLoopback(addr); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -47,7 +57,7 @@ func New(a *app.App, o Options) (*Server, error) {
 
 	mux := http.NewServeMux()
 	control := api.New(a)
-	router.New(a.DB, a.Vault, a.Catalog).Mount(mux)
+	router.New(a.DB, a.Vault).Mount(mux)
 	passthrough.New(a.DB, a.Vault).Mount(mux)
 	control.Mount(mux)
 	ui.Mount(mux, control.Token().Value())
@@ -82,6 +92,22 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // Close stops the daemon immediately.
 func (s *Server) Close() error { return s.http.Close() }
+
+// requireLoopback refuses to bind the control surface anywhere the network can reach.
+func requireLoopback(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("%s", i18n.T("serve.controlBindRefused", addr))
+}
 
 // guardOrigin keeps a random web page from driving the local API. Inference endpoints
 // are exempt: they authenticate with an app token, are called by SDKs that send no

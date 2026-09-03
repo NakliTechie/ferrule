@@ -43,7 +43,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"filippo.io/age"
@@ -78,7 +77,6 @@ type ageVault struct {
 	recip    age.Recipient
 	scrypted bool
 	cache    map[string]string
-	loaded   bool
 }
 
 // Open returns the vault living in dir. When passphrase is non-empty the store is
@@ -150,7 +148,7 @@ func (v *ageVault) load() error {
 	defer v.mu.Unlock()
 	raw, err := os.ReadFile(v.path)
 	if os.IsNotExist(err) {
-		v.cache, v.loaded = map[string]string{}, true
+		v.cache = map[string]string{}
 		return nil
 	}
 	if err != nil {
@@ -160,7 +158,7 @@ func (v *ageVault) load() error {
 	if err != nil {
 		return err
 	}
-	v.cache, v.loaded = m, true
+	v.cache = m
 	return nil
 }
 
@@ -262,7 +260,8 @@ func (v *ageVault) reload() error {
 }
 
 // lock takes an exclusive advisory lock on the vault, waiting briefly for another
-// process to finish. The returned function releases it.
+// process to finish. The returned function releases it. The platform-specific half lives
+// in lock_unix.go and lock_windows.go.
 func (v *ageVault) lock() (func(), error) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -270,9 +269,9 @@ func (v *ageVault) lock() (func(), error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		if err := lockFile(f); err == nil {
 			return func() {
-				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = unlockFile(f)
 				_ = f.Close()
 			}, nil
 		}

@@ -179,3 +179,63 @@ func TestPassthroughRequiresAnAppToken(t *testing.T) {
 		t.Fatalf("HTTP %d, want 401", resp.StatusCode)
 	}
 }
+
+// A Ferrule app token must not become general authority over the provider account behind
+// a passthrough source.
+//
+// The mount attaches the person's key to whatever comes through it, so without a scope an
+// app granted "make me an image" could also read billing, list files, or delete a
+// fine-tune. Each provider declares its inference surface; everything else is refused
+// before the key is even fetched.
+func TestPassthroughLendsTheKeyOnlyForInference(t *testing.T) {
+	r := newRig(t)
+	const providerKey = "r8_the_stored_token"
+	up := offMachineMock(t, providerKey)
+	defer up.Close()
+	if _, err := r.app.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "replicate", Provider: "replicate", BaseURL: up.BaseURL(), Key: providerKey,
+		AllowInsecure: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tok := r.mint(t, "image-tool")
+	before := len(up.Requests())
+
+	refused := []struct{ method, path string }{
+		{http.MethodGet, "account"},           // whose account is this
+		{http.MethodGet, "billing/invoices"},  // what have they spent
+		{http.MethodDelete, "predictions/p1"}, // destructive, and not inference
+		{http.MethodGet, "trainings"},         // a different product surface entirely
+		{http.MethodPost, "webhooks"},         // would redirect the account's traffic
+	}
+	for _, c := range refused {
+		req, _ := http.NewRequest(c.method, r.srv.URL+"/p/replicate/"+c.path, strings.NewReader("{}"))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s /%s got HTTP %d, want 403 — an app token is not account authority",
+				c.method, c.path, resp.StatusCode)
+		}
+	}
+	if after := up.Requests()[before:]; len(after) != 0 {
+		t.Fatalf("the provider was contacted for a refused call: %+v", after)
+	}
+
+	// Inference itself still works.
+	req, _ := http.NewRequest(http.MethodPost, r.srv.URL+"/p/replicate/predictions",
+		strings.NewReader(`{"version":"x"}`))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a prediction got HTTP %d; the scope refused inference", resp.StatusCode)
+	}
+}

@@ -15,7 +15,10 @@ sync-llms:
 	@cp llms.txt internal/ui/llms.txt
 
 # The gate. `done` is this command's word, not a self-report.
-check: sync-llms fmt vet test
+# NOT `sync-llms` first. Synchronising the embedded copy before running the test that
+# checks for drift makes that test incapable of failing here — a gate that repairs the
+# thing it is about to inspect is not a gate. `make sync-llms` is the explicit fix.
+check: fmt vet test
 
 fmt:
 	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "gofmt found unformatted files"; exit 1)

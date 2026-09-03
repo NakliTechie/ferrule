@@ -268,9 +268,6 @@ ol.ladder li[data-first] { color: var(--ink-100); }
 
 form.row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 
-.meter { height: 3px; background: var(--ink-08); border-radius: 2px; overflow: hidden; }
-.meter i { display: block; height: 100%; background: var(--accent); }
-.meter[data-cloud] i { background: var(--warn); }
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; }
 .kv dt { color: var(--ink-50); font-size: var(--t-label-size); text-transform: uppercase; letter-spacing: 0.07em; }

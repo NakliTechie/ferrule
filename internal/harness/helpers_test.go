@@ -50,7 +50,7 @@ func newRig(t *testing.T) *rig {
 		t.Fatalf("open: %v", err)
 	}
 	mux := http.NewServeMux()
-	router.New(a.DB, a.Vault, a.Catalog).Mount(mux)
+	router.New(a.DB, a.Vault).Mount(mux)
 	passthrough.New(a.DB, a.Vault).Mount(mux)
 	apiH := api.New(a)
 	apiH.Mount(mux)

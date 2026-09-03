@@ -27,6 +27,7 @@ const (
 	CodeNeedsBaseURL    Code = "needs_base_url"
 	CodeInsecureURL     Code = "insecure_url"
 	CodeRedirect        Code = "redirect"
+	CodeCredentialInURL Code = "credential_in_url"
 )
 
 // Reason is a typed outcome: what happened, what it means, and the exact next move.
@@ -73,6 +74,8 @@ func (c Code) message(detail ...any) string {
 		return i18n.T("reason.insecure_url", detail...)
 	case CodeRedirect:
 		return i18n.T("reason.redirect", detail...)
+	case CodeCredentialInURL:
+		return i18n.T("reason.credential_in_url", detail...)
 	}
 	return string(c)
 }
@@ -103,6 +106,8 @@ func (c Code) remedy() string {
 		return i18n.T("remedy.insecure_url")
 	case CodeRedirect:
 		return i18n.T("remedy.redirect")
+	case CodeCredentialInURL:
+		return i18n.T("remedy.credential_in_url")
 	}
 	return ""
 }
@@ -130,7 +135,8 @@ func reasonf(code Code, message string) Reason {
 func Codes() []Code {
 	return []Code{CodeOK, CodeUnreachable, CodeBadKey, CodeBadStatus, CodeNoModels,
 		CodeLocalNoModels, CodeTestFailed, CodeTestTimeout, CodeUnknownProvider,
-		CodeNeedsKey, CodeNeedsBaseURL, CodeInsecureURL, CodeRedirect}
+		CodeNeedsKey, CodeNeedsBaseURL, CodeInsecureURL, CodeRedirect,
+		CodeCredentialInURL}
 }
 
 // Code_ returns the code as a plain string, for storage.

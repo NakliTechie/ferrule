@@ -13,6 +13,21 @@ var secretish = regexp.MustCompile(
 		`frl_[A-Za-z0-9_\-]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,}|` +
 		`(?:api[-_]?key|authorization|x-api-key)["'\s:=]+[A-Za-z0-9._\-]{12,})`)
 
+// redactKnown removes an exact secret before falling back to shape matching.
+//
+// Pattern matching alone is a guess: a provider key with no recognisable prefix — an
+// opaque UUID, a bare hex string — matches nothing, and an upstream that echoes the
+// credential it received would have Ferrule copy it into `sources.status_reason` or
+// `ledger.err`. The key is in memory at the moment the error is handled, so the honest
+// redaction is to remove that exact string first and treat the patterns as a net for
+// whatever else the body carries.
+func redactKnown(s, secret string) string {
+	if secret != "" && len(secret) >= 8 {
+		s = strings.ReplaceAll(s, secret, "[redacted]")
+	}
+	return redact(s)
+}
+
 // redact bounds and launders an upstream error body before it is persisted.
 //
 // Ferrule writes upstream failures into `sources.status_reason` and `ledger.err` so a

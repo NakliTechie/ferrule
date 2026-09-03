@@ -35,7 +35,7 @@ exact next move. Nothing requires parsing prose.
 ```
 ok · unreachable · bad_key · bad_status · no_models · local_no_models
 test_failed · test_timeout · unknown_provider · needs_key · needs_base_url
-insecure_url · redirect
+insecure_url · redirect · credential_in_url
 ```
 
 The vocabulary is an exhaustive switch in `internal/discovery/reason.go`, published in
@@ -140,7 +140,12 @@ bus` is structural rather than remembered. *Asserted:*
   the moment they apply. *Asserted:* `TestStagedAddSourceWithholdsTheKey`.
 - The pipeline fails closed: a source becomes `live` only after a real request succeeded.
   Anything else — unreachable, rejected, empty, untested — is `failed`, never a hopeful
-  `live`. *Asserted:* `TestCheckpointAddASourcePipeline`.
+  `live`. For a token-lane source that request is a minimal chat or embeddings call. For
+  a passthrough source it is an authenticated call to the provider's own account
+  endpoint: a prediction cannot be fired as a test without spending the person's money on
+  it, so what is proven there is that the key is real and accepted, not that a generation
+  succeeds. Both are real requests to the provider; they prove different things, and this
+  is the difference. *Asserted:* `TestCheckpointAddASourcePipeline`.
 - `make check` is the judge, and nothing the router or the agent face can write reaches
   it.
 

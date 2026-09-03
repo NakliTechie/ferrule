@@ -92,7 +92,7 @@
   "op.status": "Ferrule's own state: version, config dir, vault backend, catalog date.",
   "op.set_setting": "Change a Ferrule setting.",
   "op.export_config": "Write a portable encrypted configuration file, sealed under a passphrase so the file alone is the whole configuration. Person-only: it writes your keys to a path you choose.",
-  "op.import_config": "Read a portable encrypted configuration file. Person-only: it replaces local state.",
+  "op.import_config": "Read a portable encrypted configuration file and merge it into local state — sources, models, aliases, remaps and app tokens are added or updated, and nothing local is deleted. Person-only: it writes keys into your vault.",
   "app.tagline-short": "a local key vault and model router",
   "ui.action.cancel": "Cancel",
   "ui.action.close": "Close",
@@ -227,5 +227,10 @@
   "op.catalog_refresh": "Refresh the capability catalog from its maintained source now.",
   "serve.catalogOff": "Catalog refresh is off; using the bundled snapshot from %s.",
   "export.needPassphrase": "an export needs a passphrase of at least 8 characters — it is what seals your keys inside the file",
-  "route.redirectRefused": "%s redirected to %s; Ferrule does not follow a redirect while carrying your key"
+  "route.redirectRefused": "%s redirected to %s; Ferrule does not follow a redirect while carrying your key",
+  "serve.controlBindRefused": "Refusing to serve the control surface on %s.\n\nThe panel carries this run's control token in the page it is served, and the MCP door has no auth of its own — both are safe only because nothing but this machine can reach them. Binding them to a routable address hands administrative control of your keys to the network.\n\nUse --host 127.0.0.1 (the default). If you need the inference endpoints reachable from elsewhere, put a reverse proxy you control in front of /v1 and /p and leave the control surface here.",
+  "ui.egress.meterLabel": "Share of requests that stayed on this machine: %s%%",
+  "passthrough.methodRefused": "%s is not an inference call on %s. The passthrough mount carries your provider key, so it serves that provider's inference surface and nothing else — account, billing, and file operations are yours to make directly.",
+  "reason.credential_in_url": "the base URL carries a credential in its %s",
+  "remedy.credential_in_url": "Put the key in the key field. A base URL is stored in the database and travels in an export; the vault is the only place a credential belongs."
 }

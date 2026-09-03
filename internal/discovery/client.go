@@ -16,6 +16,14 @@ import (
 	"ferrule/internal/store"
 )
 
+// trimKnown removes an exact secret before the shape net runs.
+func trimKnown(s, secret string) string {
+	if secret != "" && len(secret) >= 8 {
+		s = strings.ReplaceAll(s, secret, "[redacted]")
+	}
+	return trim(s)
+}
+
 // httpDo issues a request against a source with its credentials attached.
 func (e *Engine) httpDo(ctx context.Context, spec provider.Spec, method, url, key string, body []byte) (int, []byte, error) {
 	var rdr io.Reader
@@ -69,10 +77,10 @@ func (e *Engine) listOpenAI(ctx context.Context, spec provider.Spec, baseURL, ke
 		return nil, newReason(CodeBadKey, code)
 	}
 	if code >= 300 && code < 400 {
-		return nil, newReason(CodeRedirect, trim(string(raw)))
+		return nil, newReason(CodeRedirect, trimKnown(string(raw), key))
 	}
 	if code != http.StatusOK {
-		return nil, newReason(CodeBadStatus, code, trim(string(raw)))
+		return nil, newReason(CodeBadStatus, code, trimKnown(string(raw), key))
 	}
 	var doc struct {
 		Data []struct {
@@ -118,7 +126,7 @@ func (e *Engine) listReplicate(ctx context.Context, spec provider.Spec, baseURL,
 		return nil, newReason(CodeBadKey, code)
 	}
 	if code != http.StatusOK {
-		return nil, newReason(CodeBadStatus, code, trim(string(raw)))
+		return nil, newReason(CodeBadStatus, code, trimKnown(string(raw), key))
 	}
 	code, raw, err = e.httpDo(ctx, spec, http.MethodGet, provider.URL(baseURL, "collections/text-to-image"), key, nil)
 	if err != nil || code != http.StatusOK {
@@ -188,7 +196,7 @@ func (e *Engine) probeChat(ctx context.Context, spec provider.Spec, baseURL, key
 	if code == http.StatusOK {
 		return true, Reason{Code: CodeOK}
 	}
-	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trim(string(raw))))
+	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trimKnown(string(raw), key)))
 }
 
 // timeoutOrFailure names what actually went wrong. "It refused" and "it never answered"
@@ -214,7 +222,7 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 	if code == http.StatusOK {
 		return true, Reason{Code: CodeOK}
 	}
-	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trim(string(raw))))
+	return false, newReason(CodeTestFailed, CodeBadStatus.message(code, trimKnown(string(raw), key)))
 }
 
 // secretish matches the shapes provider keys come in. Broad on purpose: a slightly
@@ -228,6 +236,9 @@ var secretish = regexp.MustCompile(
 // trim bounds an upstream message and strips anything key-shaped out of it first. These
 // strings are persisted, and they are written by the provider — a provider that echoes
 // the credential it received would otherwise have Ferrule store it.
+//
+// Shape matching is a net, not a guarantee: an opaque key matches nothing. Callers that
+// hold the actual key use trimKnown so the literal value goes first.
 func trim(s string) string {
 	s = secretish.ReplaceAllString(s, "[redacted]")
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))

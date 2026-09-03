@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ferrule/internal/catalog"
 	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
 	"ferrule/internal/store"
@@ -29,14 +28,16 @@ import (
 type Router struct {
 	db     *store.DB
 	vault  vault.Vault
-	cat    *catalog.Catalog
 	client *http.Client
 }
 
 // New builds a Router.
-func New(db *store.DB, v vault.Vault, cat *catalog.Catalog) *Router {
+// New builds a Router. It deliberately takes no catalog: pricing is resolved when a model
+// is classified and stored on the model row, so routing reads it from the database. A
+// catalog dependency here would imply routing consults it, which it does not.
+func New(db *store.DB, v vault.Vault) *Router {
 	return &Router{
-		db: db, vault: v, cat: cat,
+		db: db, vault: v,
 		// No overall timeout: a long generation is a legitimate request. Per-attempt
 		// deadlines come from the caller's context.
 		//
@@ -280,7 +281,7 @@ func (r *Router) attempt(w http.ResponseWriter, ctx context.Context, g store.Gra
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		entry.LatencyMS = int(time.Since(start).Milliseconds())
 		entry.Status, entry.RespBytes = resp.StatusCode, len(raw)
-		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, redact(string(raw)))
+		entry.Err = i18n.T("route.upstreamFailed", t.Source.Name, redactKnown(string(raw), key))
 		_, _ = r.db.Record(entry)
 		// 5xx and 429 are the upstream's problem; the next rung may well answer.
 		retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests

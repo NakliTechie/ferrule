@@ -26,6 +26,10 @@ hand-write a config listing models and endpoints. Ferrule opens already knowing:
 localhost for running runtimes and adopts them, and adding a cloud provider is *paste a
 key*, not *edit a file*. No config file, no restart.
 
+For OpenAI-compatible sources that means everything the endpoint lists. Replicate is the
+exception: it has no comparable listing, so Ferrule shows a curated slice and you reach
+anything else by naming it — the passthrough lane routes by explicit model id anyway.
+
 The panel is usable in **377 ms** cold. Getting a *routable* model takes as long as the
 runtime takes to serve one real request — 0.17 s against a warm Ollama, a few seconds
 with the model unloaded, up to a minute on a genuinely cold one. Ferrule ends every
@@ -91,7 +95,10 @@ The fault line is **normalization cost**, not text versus media.
   Replicate is OpenAI-compatible. Unified media is a later, additive lane — never the
   thing that defines v1.
 
-Both lanes share the vault, the app tokens, the cost tracking, and the egress view.
+Both lanes share the vault, the app tokens, and the egress view. Cost and token counts
+are token-lane only: a prediction API reports neither in any shape Ferrule could read
+without normalising it, which is the treadmill this split exists to avoid. Passthrough
+requests are still recorded — volume, latency, bytes, status, and where they went.
 
 ## Where your keys live
 
