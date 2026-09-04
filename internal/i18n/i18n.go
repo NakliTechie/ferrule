@@ -114,6 +114,15 @@ func Keys() []string {
 	return out
 }
 
+// Raw returns a key's unformatted string in the default locale, so a test can inspect
+// the format verbs a string actually carries.
+func Raw(key string) string {
+	once.Do(load)
+	mu.RLock()
+	defer mu.RUnlock()
+	return tables[defaultLocale][key]
+}
+
 // LoadError surfaces a malformed bundled locale at startup.
 func LoadError() error { once.Do(load); return loadErr }
 

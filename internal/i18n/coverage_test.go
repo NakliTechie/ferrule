@@ -127,3 +127,45 @@ func repoRoot(t *testing.T) string {
 	t.Fatal("could not find the module root")
 	return ""
 }
+
+// The string table is written for Go's fmt and rendered by two formatters: Go's, and the
+// twelve lines of it in the panel. A verb the panel's formatter does not match is not a
+// visible error — it silently shifts every later argument by one and drops the last. The
+// panel did not know %q, and the dialog that hands a family member their key told them to
+// point their app at "http:///v1".
+func TestThePanelUnderstandsEveryVerbInTheTable(t *testing.T) {
+	root := repoRoot(t)
+	js, err := os.ReadFile(filepath.Join(root, "internal", "ui", "assets", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The verb matcher out of the panel's own T(), so this tests what ships rather than
+	// a copy of it that can go stale.
+	m := regexp.MustCompile(`s\.replace\(/([^/]+)/g`).FindSubmatch(js)
+	if m == nil {
+		t.Fatal("cannot find the panel's format-verb matcher in app.js; this test is broken")
+	}
+	panelVerbs, err := regexp.Compile(string(m[1]))
+	if err != nil {
+		t.Fatalf("the panel's matcher %q does not compile as a regexp: %v", m[1], err)
+	}
+
+	verb := regexp.MustCompile(`%[-#+ 0-9.]*[a-zA-Z]`)
+	seen := map[string][]string{}
+	for _, k := range i18n.Keys() {
+		for _, v := range verb.FindAllString(i18n.Raw(k), -1) {
+			seen[v] = append(seen[v], k)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no format verbs found in the table; the extractor is broken")
+	}
+	for v, keys := range seen {
+		if !panelVerbs.MatchString(v) {
+			sort.Strings(keys)
+			t.Errorf("the table uses %s (%d keys, e.g. %s) and the panel's formatter does "+
+				"not match it; every later argument in those strings shifts by one",
+				v, len(keys), keys[0])
+		}
+	}
+}

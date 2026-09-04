@@ -3,13 +3,19 @@
    into this file in English. */
 
 let S = {};
+// The string table is written for Go's fmt and read by both sides, so this has to know
+// every verb the table actually uses. It did not know %q: an unmatched verb is not a
+// visible error, it silently shifts every later argument by one and drops the last, which
+// is how the token dialog came to tell people to point their app at "http:///v1".
+// TestThePanelUnderstandsEveryVerbInTheTable is what keeps the two in step.
 const T = (k, ...a) => {
   let s = S[k];
   if (s === undefined) return "⟨" + k + "⟩";
   let i = 0;
-  return s.replace(/%[sdv]|%\.\d+f/g, () => {
+  return s.replace(/%[sdqv]|%\.\d+f/g, (verb) => {
     const v = a[i++];
-    return v === undefined ? "" : String(v);
+    if (v === undefined) return "";
+    return verb === "%q" ? '"' + String(v) + '"' : String(v);
   });
 };
 
@@ -88,9 +94,26 @@ const state = {
   addProvider: "",
   status: null,
   detecting: true,
+  // Simple is the default because the person this runs for is setting up their
+  // household, not auditing a router. Advanced is every screen that existed before.
+  mode: readMode(),
   filters: { where: "", capability: "", q: "", maxCost: 0 },
   sort: { col: "model", dir: 1 },
 };
+
+function readMode() {
+  try {
+    return localStorage.getItem("ferrule.mode") === "advanced" ? "advanced" : "simple";
+  } catch { return "simple"; }
+}
+
+function setMode(m) {
+  state.mode = m;
+  try { localStorage.setItem("ferrule.mode", m); } catch { /* private window; the session still works */ }
+  if (m === "simple") state.view = "home";
+  else if (state.view === "home") state.view = "board";
+  render();
+}
 
 const VIEWS = [
   ["board", "ui.nav.board", () => state.models.length],
@@ -101,6 +124,15 @@ const VIEWS = [
 ];
 
 function renderNav() {
+  const foot = $("#foot-mode");
+  if (foot) {
+    foot.textContent = state.mode === "simple" ? T("ui.mode.toAdvanced") : T("ui.mode.toSimple");
+    foot.onclick = () => setMode(state.mode === "simple" ? "advanced" : "simple");
+  }
+  if (state.mode === "simple") {
+    $("#nav").replaceChildren();
+    return;
+  }
   const items = [
     ...VIEWS.map(([id, key, count]) =>
       el(
@@ -445,8 +477,11 @@ function routeOptions() {
 }
 
 function aliasEditor(existing) {
+  // "Alias", "rung" and "ladder" are the right words for what this is and the wrong words
+  // for the person setting up their house. Same dialog, same op, different reader.
+  const simple = state.mode === "simple";
   const name = el("input", { type: "text", value: existing ? existing.name : "",
-    placeholder: "fast", readonly: existing ? true : null });
+    placeholder: simple ? "everyday" : "fast", readonly: existing ? true : null });
   const rows = el("div", {});
   const ladder = existing ? existing.rungs.map((r) => r.source_id + "/" + r.model) : [""];
   const draw = () => {
@@ -464,15 +499,19 @@ function aliasEditor(existing) {
             onclick: () => { ladder.splice(i, 1); draw(); } }),
         ),
       ),
-      el("button", { class: "act mt6", type: "button", text: T("ui.alias.addRung"),
+      el("button", { class: "act mt6", type: "button",
+        text: simple ? T("ui.home.addBackup") : T("ui.alias.addRung"),
         onclick: () => { ladder.push(""); draw(); } }),
     );
   };
   draw();
-  modal(existing ? T("ui.alias.edit", existing.name) : T("ui.alias.new"),
-    el("label", { class: "field" }, T("ui.alias.name"), name,
-      el("span", { class: "hint", text: T("ui.alias.nameHint") })),
-    el("div", { class: "mt10" }, el("div", { class: "note", text: T("ui.alias.ladderHint") }), rows),
+  modal(existing
+      ? (simple ? T("ui.home.changeChoice", existing.name) : T("ui.alias.edit", existing.name))
+      : (simple ? T("ui.home.addChoice") : T("ui.alias.new")),
+    el("label", { class: "field" }, simple ? T("ui.home.choiceName") : T("ui.alias.name"), name,
+      el("span", { class: "hint", text: simple ? T("ui.home.choiceNameHint") : T("ui.alias.nameHint") })),
+    el("div", { class: "mt10" },
+      el("div", { class: "note", text: simple ? T("ui.home.choiceBody") : T("ui.alias.ladderHint") }), rows),
     el("div", { class: "actions-lg" },
       el("button", { class: "act", "data-primary": true, type: "button", text: T("ui.action.save"),
         onclick: async () => {
@@ -486,8 +525,13 @@ function aliasEditor(existing) {
 }
 
 /* ---------- add a source ---------- */
-function renderAdd(pane, bar) {
-  bar.replaceChildren(el("h2", { text: T("ui.nav.add") }));
+// buildAddForm is the provider form itself, used by the Advanced pane and by the Simple
+// view's dialog. Two placements, one form: the fields, the validation and the submit
+// path cannot drift apart, which is exactly how `test_model` came to exist in the CLI
+// and nowhere a person could reach it.
+//
+// onDone runs after a successful add, so a dialog can close itself and a pane need not.
+function buildAddForm(onDone) {
   const providers = state.providers || [];
   if (!state.addProvider && providers.length) state.addProvider = providers[0].id;
   const sel = el("select", {}, ...providers.map((p) =>
@@ -521,36 +565,44 @@ function renderAdd(pane, bar) {
   baseIn.addEventListener("input", () => { baseIn.dataset.touched = "1"; });
   sync();
 
+  const form = el("form", { class: "row mt10",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      state.lastAdd = null;
+      out.replaceChildren(el("div", { class: "state pulse", text: T("ui.add.testing") }));
+      try {
+        const r = await op("add_source", {
+          provider: sel.value, name: nameIn.value, base_url: baseIn.value, key: keyIn.value,
+          test_model: testIn.value.trim(),
+        });
+        keyIn.value = "";
+        // The result is held in state, not in this node: the refresh below rebuilds
+        // the pane, and a loud failure that vanished on re-render would be no failure
+        // at all.
+        state.lastAdd = r;
+        await refresh();
+        if (onDone) onDone(r);
+      } catch (err) {
+        state.lastAdd = { error: err.message };
+        out.replaceChildren(addResult());
+      }
+    } },
+    el("label", { class: "field" }, T("ui.add.provider"), sel),
+    el("label", { class: "field" }, T("ui.add.name"), nameIn),
+    el("label", { class: "field" }, T("ui.add.key"), keyIn),
+    el("label", { class: "field" }, T("ui.add.testModel"), testIn),
+    el("label", { class: "field grow" }, T("ui.add.baseUrl"), baseIn),
+    el("button", { class: "act", "data-primary": true, type: "submit", text: T("ui.add.submit") }),
+  );
+  return { form, out };
+}
+
+function renderAdd(pane, bar) {
+  bar.replaceChildren(el("h2", { text: T("ui.nav.add") }));
+  const { form, out } = buildAddForm(null);
   pane.replaceChildren(el("div", { class: "pad" },
     el("p", { class: "note", text: T("ui.add.body") }),
-    el("form", { class: "row mt10",
-      onsubmit: async (e) => {
-        e.preventDefault();
-        state.lastAdd = null;
-        out.replaceChildren(el("div", { class: "state pulse", text: T("ui.add.testing") }));
-        try {
-          const r = await op("add_source", {
-            provider: sel.value, name: nameIn.value, base_url: baseIn.value, key: keyIn.value,
-            test_model: testIn.value.trim(),
-          });
-          keyIn.value = "";
-          // The result is held in state, not in this node: the refresh below rebuilds
-          // the pane, and a loud failure that vanished on re-render would be no failure
-          // at all.
-          state.lastAdd = r;
-          await refresh();
-        } catch (err) {
-          state.lastAdd = { error: err.message };
-          render();
-        }
-      } },
-      el("label", { class: "field" }, T("ui.add.provider"), sel),
-      el("label", { class: "field" }, T("ui.add.name"), nameIn),
-      el("label", { class: "field" }, T("ui.add.key"), keyIn),
-      el("label", { class: "field" }, T("ui.add.testModel"), testIn),
-      el("label", { class: "field grow" }, T("ui.add.baseUrl"), baseIn),
-      el("button", { class: "act", "data-primary": true, type: "submit", text: T("ui.add.submit") }),
-    ),
+    form,
     el("p", { class: "note mt10", text: T("ui.add.testModelHint") }),
     out,
     el("div", { class: "note mt22" },
@@ -558,6 +610,19 @@ function renderAdd(pane, bar) {
       el("button", { class: "act", type: "button", text: T("ui.action.rescan"), onclick: rescan }),
     ),
   ));
+}
+
+// addProviderDialog is the Simple view's door to the same form. It closes itself on a
+// success and stays open on a failure, so the reason is read where it was caused.
+function addProviderDialog() {
+  state.lastAdd = null;
+  const { form, out } = buildAddForm((r) => { if (r.live) closeModal(); });
+  modal(T("ui.home.addSource"),
+    el("p", { class: "note", text: T("ui.add.body") }),
+    form,
+    el("p", { class: "note mt10", text: T("ui.add.testModelHint") }),
+    out,
+  );
 }
 
 // addResult renders the outcome of the last add. It reads from state so it survives the
@@ -708,26 +773,35 @@ function renderGrants(pane, bar) {
 }
 
 function mintDialog() {
-  const appIn = el("input", { type: "text", placeholder: "my-script" });
-  modal(T("ui.grants.mint"),
-    el("label", { class: "field" }, T("ui.grants.col.app"), appIn),
+  // One op, two audiences. Advanced is minting an app token; Simple is giving someone in
+  // the house their own way in. The words differ because the reader does.
+  const simple = state.mode === "simple";
+  const title = simple ? T("ui.home.addPerson") : T("ui.grants.mint");
+  const appIn = el("input", { type: "text", placeholder: simple ? T("ui.home.personPlaceholder") : "my-script" });
+  modal(title,
+    simple ? el("p", { class: "note", text: T("ui.home.addPersonBody") }) : null,
+    el("label", { class: "field" }, simple ? T("ui.home.personName") : T("ui.grants.col.app"), appIn),
     el("div", { class: "actions-lg" },
-      el("button", { class: "act", "data-primary": true, type: "button", text: T("ui.grants.mint"),
+      el("button", { class: "act", "data-primary": true, type: "button", text: title,
         onclick: async () => {
           try {
             const r = await op("mint_grant", { app: appIn.value.trim() || "app" });
             const lan = state.status && state.status.lan_endpoint;
             const here = location.origin + "/v1";
             const kids = [
-              el("h3", { text: T("ui.grants.shownOnce") }),
+              el("h3", { text: simple ? T("ui.home.keyShownOnce") : T("ui.grants.shownOnce") }),
               el("pre", { class: "mono code", text: r.token }),
-              el("p", { class: "note", text: T("grant.minted", r.grant.app, "", location.host).split("\n").pop() }),
+              el("p", { class: "note", text: simple
+                ? T("ui.home.keyBody")
+                : T("grant.minted", r.grant.app, "", location.host).split("\n").pop() }),
             ];
             if (lan) {
               // A token minted for someone else needs the address that works from their
               // machine. localhost is this one.
               kids.push(
-                el("p", { class: "note", text: T("ui.grants.lanHint") }),
+                // Simple mode already said what these two lines are for; a second
+                // explanation of the same thing reads as a warning about something else.
+                simple ? null : el("p", { class: "note", text: T("ui.grants.lanHint") }),
                 el("p", { class: "note", text: T("ui.grants.forOthers") }),
                 el("pre", { class: "mono code",
                   text: "OPENAI_BASE_URL=http://" + lan + "/v1\nOPENAI_API_KEY=" + r.token }),
@@ -740,7 +814,7 @@ function mintDialog() {
               el("button", { class: "act", type: "button", text: T("ui.action.close"),
                 onclick: async () => { closeModal(); await refresh(); } }),
             );
-            $("#modal-body").replaceChildren(...kids);
+            $("#modal-body").replaceChildren(...kids.filter(Boolean));
           } catch (err) { toast(err.message, "error"); }
         } }),
       el("button", { class: "act", type: "button", text: T("ui.action.cancel"), onclick: closeModal }),
@@ -783,6 +857,183 @@ function renderStaged(pane, bar) {
   );
 }
 
+
+/* ---------- the default view ----------
+   Arranged around what a person is doing, not around what Ferrule is made of. The three
+   steps are the whole job in order: put your keys in, give your household plain names
+   for what they get, hand each person their own way in. Everything the old screens show
+   — the model table, the ladders, the egress split, the ledger — is still there, one
+   click away under Advanced, for the day someone wants it. */
+
+function renderHome(pane, bar) {
+  bar.replaceChildren(el("h2", { text: T("ui.home.title") }));
+  pane.replaceChildren(el("div", { class: "home" },
+    shareCard(),
+    homeStep("1", T("ui.home.sources"), T("ui.home.sourcesBody"),
+      el("button", { class: "act", "data-primary": true, type: "button",
+        text: T("ui.home.addSource"), onclick: addProviderDialog }),
+      state.sources.length ? el("div", { class: "rows" }, ...state.sources.map(sourceRow))
+        : homeEmpty(state.detecting ? T("ui.home.sourcesScanning") : T("ui.home.sourcesEmpty"))),
+    homeStep("2", T("ui.home.choices"), T("ui.home.choicesBody"),
+      el("button", { class: "act", type: "button", text: T("ui.home.addChoice"),
+        disabled: !liveModelCount(), onclick: () => aliasEditor(null) }),
+      state.aliases.length ? el("div", { class: "rows" }, ...state.aliases.map(choiceRow))
+        : homeEmpty(liveModelCount() ? T("ui.home.choicesEmpty") : T("ui.home.choicesNoModels"))),
+    homeStep("3", T("ui.home.people"), T("ui.home.peopleBody"),
+      el("button", { class: "act", type: "button", text: T("ui.home.addPerson"), onclick: mintDialog }),
+      livePeople().length ? el("div", { class: "rows" }, ...livePeople().map(personRow))
+        : homeEmpty(T("ui.home.peopleEmpty"))),
+  ));
+}
+
+const livePeople = () => state.grants.filter((g) => !g.revoked);
+// Four decimals is right in the ledger and wrong on a household screen, where it reads
+// as a rounding error rather than as a number. Two, unless two would round it to zero.
+const money = (c) => {
+  const n = c || 0;
+  return "$" + (n > 0 && n < 0.01 ? n.toFixed(4) : n.toFixed(2));
+};
+const liveModelCount = () =>
+  state.models.filter((m) => (state.sources.find((s) => s.name === m.source) || {}).status === "live").length;
+
+function homeStep(n, title, body, action, ...kids) {
+  return el("section", { class: "step" },
+    el("header", {},
+      el("span", { class: "step-n", text: n }),
+      el("div", {}, el("h3", { text: title }), el("p", { class: "note", text: body })),
+      el("div", { class: "spacer" }),
+      action),
+    ...kids);
+}
+
+const homeEmpty = (text) => el("p", { class: "note empty", text });
+
+// shareCard answers the question the whole product exists for: can my family use this,
+// and what do I give them. When Ferrule is bound to this machine only, it says so and
+// says how to change it, rather than leaving an address-shaped hole.
+function shareCard() {
+  const lan = (state.status && state.status.lan_endpoint) || "";
+  if (!lan) {
+    return el("div", { class: "share", "data-off": "" },
+      el("h3", { text: T("ui.home.notShared") }),
+      el("p", { class: "note", text: T("ui.home.notSharedBody") }),
+      el("pre", { class: "mono code", text: "ferrule serve --lan" }));
+  }
+  const url = "http://" + lan + "/v1";
+  return el("div", { class: "share" },
+    el("h3", { text: T("ui.home.shared") }),
+    el("p", { class: "note", text: T("ui.home.sharedBody") }),
+    el("div", { class: "share-url" },
+      el("code", { class: "mono", text: url }),
+      copyButton(url)),
+  );
+}
+
+function copyButton(text) {
+  return el("button", { class: "act", type: "button", text: T("ui.action.copy"),
+    onclick: async (e) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(T("ui.toast.copied"));
+      } catch {
+        // A denied clipboard is not a failure to route around silently: select the text
+        // so the person can copy it the ordinary way.
+        const node = e.target.previousElementSibling;
+        if (node) {
+          const r = document.createRange();
+          r.selectNodeContents(node);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+        toast(T("ui.toast.copyManual"), "error");
+      }
+    } });
+}
+
+function sourceRow(s) {
+  const live = s.status === "live";
+  const count = s.models === 1 ? T("ui.source.modelCountOne") : T("ui.source.modelCount", s.models);
+  return el("div", { class: "row-item" },
+    el("span", { class: "dot", "data-s": s.status }),
+    el("div", { class: "grow" },
+      el("div", { class: "row-title" }, s.name,
+        el("span", { class: "tag", "data-where": s.where, text: s.where })),
+      el("div", { class: "note", text: live ? count : T("ui.home.needsAttention") }),
+      // On a failed source the remedy is the whole content of the row. The provider's
+      // verbatim words stay in Advanced; a person setting up their house does not need
+      // 180 characters of somebody's JSON to learn their card was declined.
+      live ? null : el("div", { class: "why", text: s.remedy || s.reason }),
+      live && s.models ? el("details", { class: "verbatim" },
+        el("summary", { text: T("ui.home.seeModels") }),
+        el("div", { class: "model-list mono" },
+          ...state.models.filter((m) => m.source === s.name).map((m) =>
+            el("div", { text: m.model })))) : null),
+    el("div", { class: "actions" },
+      el("button", { class: "act", type: "button", text: T("ui.action.checkAgain"),
+        onclick: () => run(() => op("refresh_source", { id: s.id }), T("ui.action.checkAgain")) }),
+      el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.action.remove"),
+        onclick: () => confirmRemove(s) })));
+}
+
+function choiceRow(a) {
+  const i = firstLive(a);
+  const serving = i >= 0 ? a.rungs[i] : null;
+  return el("div", { class: "row-item" },
+    el("span", { class: "dot", "data-s": serving ? "live" : "failed" }),
+    el("div", { class: "grow" },
+      el("div", { class: "row-title" }, a.name),
+      el("div", { class: "note mono",
+        text: serving ? serving.model : T("ui.home.choiceDark") }),
+      // A ladder is the point of an alias and the last thing a person needs on screen.
+      // One line, only when there is actually a fallback behind the first rung.
+      serving && a.rungs.length > 1
+        ? el("div", { class: "note", text: T("ui.home.choiceFallback", a.rungs.length - 1) }) : null),
+    el("div", { class: "actions" },
+      el("button", { class: "act", type: "button", text: T("ui.action.change"),
+        onclick: () => aliasEditor(a) }),
+      el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.action.remove"),
+        onclick: () => run(() => op("remove_alias", { name: a.name }), T("ui.action.remove")) })));
+}
+
+function personRow(g) {
+  return el("div", { class: "row-item" },
+    el("span", { class: "dot", "data-s": "live" }),
+    el("div", { class: "grow" },
+      el("div", { class: "row-title" }, g.app),
+      el("div", { class: "note", text: g.requests === 1
+        ? T("ui.home.personUsageOne", money(g.cost))
+        : T("ui.home.personUsage", g.requests, money(g.cost)) })),
+    el("div", { class: "actions" },
+      el("button", { class: "act", type: "button", text: T("ui.home.setup"),
+        onclick: () => setupDialog(g) }),
+      el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.home.turnOff"),
+        onclick: () => run(() => op("revoke_grant", { id: g.id }), T("ui.home.turnOff")) })));
+}
+
+// setupDialog is what one person hands another. The token itself was shown once when it
+// was minted and Ferrule does not keep it, so this says so rather than pretending to
+// produce it again — and offers the one thing that does fix it, a fresh key.
+function setupDialog(g) {
+  const lan = (state.status && state.status.lan_endpoint) || "";
+  const base = "http://" + (lan || location.host) + "/v1";
+  modal(T("ui.home.setupFor", g.app),
+    el("p", { class: "note", text: T("ui.home.setupBody") }),
+    el("pre", { class: "mono code", text: "OPENAI_BASE_URL=" + base + "\nOPENAI_API_KEY=" + T("ui.home.theirKey") }),
+    lan ? null : el("p", { class: "note", text: T("ui.home.setupLocalOnly") }),
+    el("p", { class: "note", text: T("ui.home.setupLost") }),
+    el("div", { class: "actions-lg" },
+      copyButtonFor("OPENAI_BASE_URL=" + base),
+      el("button", { class: "act", type: "button", text: T("ui.action.close"), onclick: closeModal })));
+}
+
+const copyButtonFor = (text) =>
+  el("button", { class: "act", type: "button", text: T("ui.home.copyBase"),
+    onclick: async () => {
+      try { await navigator.clipboard.writeText(text); toast(T("ui.toast.copied")); }
+      catch { toast(T("ui.toast.copyManual"), "error"); }
+    } });
+
 /* ---------- shell ---------- */
 async function run(fn, label) {
   try {
@@ -805,6 +1056,7 @@ function render() {
   const bar = $("#bar");
   for (const p of document.querySelectorAll(".pane")) delete p.dataset.active;
   const map = {
+    home: [$("#pane-home"), renderHome],
     board: [$("#pane-board"), renderBoard],
     aliases: [$("#pane-aliases"), renderAliases],
     add: [$("#pane-add"), renderAdd],
@@ -812,7 +1064,8 @@ function render() {
     grants: [$("#pane-grants"), renderGrants],
     staged: [$("#pane-grants"), renderStaged],
   };
-  const [pane, fn] = map[state.view] || map.board;
+  if (state.mode === "simple") state.view = "home";
+  const [pane, fn] = map[state.view] || (state.mode === "simple" ? map.home : map.board);
   pane.dataset.active = "";
   fn(pane, bar);
 }

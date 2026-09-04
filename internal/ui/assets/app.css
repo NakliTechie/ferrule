@@ -353,3 +353,42 @@ progress.meter[data-cloud]::-moz-progress-bar { background: var(--warn); }
   line-height: 1.55; word-break: break-word; color: var(--ink-50);
 }
 header.bar input.cap { width: 13ch; }
+
+/* ---------- the default view ----------
+   Calm where the board is dense: one column, room to breathe, and a line length that
+   stays readable. The person here is setting up their house, not scanning a table. */
+.home { padding: 22px 26px 40px; max-width: 68ch; display: flex; flex-direction: column; gap: 30px; }
+
+.share { border: 1px solid var(--accent-fill); background: var(--accent-fill); border-radius: 4px; padding: 14px 16px; }
+.share[data-off] { border-color: var(--ink-15); background: var(--fill); }
+.share h3 { margin: 0; font-size: var(--t-title-size); font-weight: 500; }
+.share .note { margin-top: 5px; }
+.share-url { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+.share-url code { font-size: var(--t-datum-size); color: var(--ink-100); }
+.share .code { margin-top: 11px; }
+
+.step > header { display: flex; align-items: flex-start; gap: 12px; }
+.step > header h3 { margin: 0; font-size: var(--t-title-size); font-weight: 500; }
+.step > header .note { margin-top: 4px; max-width: 52ch; }
+.step-n {
+  font-family: var(--mono); font-size: var(--t-micro-size); color: var(--ink-50);
+  border: 1px solid var(--ink-15); border-radius: 50%; width: 19px; height: 19px;
+  display: grid; place-items: center; flex: none; margin-top: 1px;
+}
+.rows { margin-top: 12px; border-top: 1px solid var(--ink-08); }
+.row-item {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 2px; border-bottom: 1px solid var(--ink-08);
+}
+.row-item .grow { flex: 1; min-width: 0; }
+.row-item .row-title { display: flex; align-items: center; gap: 8px; color: var(--ink-100); }
+.row-item .note, .row-item .why { margin-top: 3px; }
+.row-item .dot { margin-top: 6px; }
+.row-item .actions { margin: 0; flex: none; }
+.model-list { max-height: 190px; overflow-y: auto; font-size: var(--t-micro-size);
+  color: var(--ink-50); line-height: 1.75; }
+.note.empty { margin-top: 12px; }
+.step > header .act { flex: none; white-space: nowrap; }
+.step > header .spacer { flex: 1; }
+/* Empty states line up with the step's own text, not with its number. */
+.note.empty { margin-left: 31px; max-width: 52ch; }
