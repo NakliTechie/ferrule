@@ -6,6 +6,10 @@
 </p>
 
 <p align="center">
+  One binary. macOS, Linux, Windows. No account, no server, no telemetry.
+</p>
+
+<p align="center">
   <a href="../../releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/NakliTechie/ferrule?style=flat-square&color=3fb950"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square"></a>
   <img alt="one binary" src="https://img.shields.io/badge/install-one%20binary-3fb950?style=flat-square">
@@ -31,8 +35,7 @@
 **<http://localhost:8899>**.
 
 **3. Give it something to route.** If Ollama or LM Studio is running, Ferrule has already
-found it. Otherwise click **Add a provider** and paste a key — Ferrule probes the endpoint
-and fires one real request before it will call the source live.
+found it. Otherwise click **Add a provider** and paste a key.
 
 **4. Point an app at it.** The panel shows an address and a household key. Anything that
 speaks OpenAI takes them:
@@ -50,6 +53,16 @@ That is the whole setup. **No config file, no account, no restart.**
 
 ---
 
+## Why
+
+Your provider key is in six `.env` files and you are not sure which. Rotating it means
+finding all of them. You cannot answer *what did this key spend last month*, or *did that
+prompt leave my machine*, because nothing was ever in a position to know.
+
+Ferrule is the one place the key lives. Everything that wants it gets a Ferrule token
+instead — revoke one and the rest keep working — and because every request goes through
+one door, that door can tell you what it cost and where it went.
+
 ## What it is
 
 Ferrule is a **key vault first, a model router second**. Paste a provider key once and
@@ -63,25 +76,48 @@ carrying nothing about you, which you can turn off.
 
 *A ferrule is the fitting that binds many strands into a single clean termination.*
 
-### What it does that the alternatives don't
+### What it optimises for, in order
+
+1. **Your keys stay yours.** Encrypted on your disk, never transmitted anywhere but the
+   provider you gave them for, never written in plaintext to a database, a log or a ledger.
+2. **Failures are loud and specific.** A dead key is never quietly stored. Every refusal
+   carries the provider's own words and one clear next action.
+3. **You can see what left.** Every request is recorded before it is made — app, model,
+   cost, and whether it went off the machine. A request Ferrule cannot record, it refuses.
+4. **It works without you.** No config file, no restart, no account. Local runtimes are
+   adopted on their own.
+5. **One binary.** No runtime, no database server, nothing to keep running but Ferrule.
+
+Where these conflict, the earlier one wins.
+
+### The two that are hard to get elsewhere
 
 **Probe, don't declare.** Comparable tools ask you to hand-write a config listing models
 and endpoints. Ferrule scans localhost for running runtimes and adopts them, and adding a
-cloud provider is *paste a key*, not *edit a file*.
-
-**A dead key is never quietly stored.** Adding a source probes, classifies, and fires one
-real request before calling it live. If that fails the source is kept, visibly dead, with
-the provider's own words and a specific next action — a 402 from DeepSeek means the
-account is empty and the key is fine; a 404 from NVIDIA means that one model is outside
-your tier and the others may work.
+cloud provider is *paste a key*, not *edit a file*. A refusal names itself precisely: a 402
+from DeepSeek means the account is empty and the key is fine; a 404 from NVIDIA means that
+one model is outside your tier and the others may work.
 
 **Egress visibility.** Cost dashboards are everywhere; a data-egress dashboard is not.
 Ferrule knows which requests stayed on the machine and which went to a provider, so it
-shows *where your prompts went*, not only what they cost. Metadata only — content logging
-is off by default and, when on, stays local.
+shows *where your prompts went*, not only what they cost.
 
 The panel answers in **0.11 s** cold. A routable model takes as long as the runtime takes
 to serve one real request — about 5 s for a local model already pulled.
+
+### Use something else if
+
+**[LiteLLM](https://github.com/BerriAI/litellm)** if you want a gateway for a team or an
+organisation — hosted, enterprise features, a hundred-plus providers, and a config file
+you version-control. Ferrule is deliberately single-user and local, with a curated seed
+set, and there is no config file to check in.
+
+**[Ollama](https://ollama.com)** if you want to *run* models. Ferrule does not run
+anything; it routes to Ollama and to the cloud through one endpoint, and it finds your
+Ollama without being told.
+
+**A `.env` file** if you have one key and one project. Ferrule earns its place at the
+point where you have several of each.
 
 ---
 
@@ -187,9 +223,9 @@ the control plane refusing the network from a real non-loopback bind.
 
 ## Status
 
-Verified end to end on macOS and Linux. The Windows login-item registration compiles and
-its task arguments are tested, but has not been run on Windows. Nothing is signed or
-notarised. Intel Macs are served by the `ferrule-darwin-amd64` binary rather than the app.
+Verified end to end on macOS, Linux and Windows — install, run, share, register at login,
+unregister. Nothing is signed or notarised. Intel Macs are served by the
+`ferrule-darwin-amd64` binary rather than the app.
 
 ## Not doing
 
