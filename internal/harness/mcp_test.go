@@ -546,3 +546,52 @@ func TestWithoutLANANonLoopbackBindIsRefused(t *testing.T) {
 		t.Errorf("LANEndpoint() = %q on a loopback daemon, want empty", ep)
 	}
 }
+
+// Parity had two directions and was missing a third. The manifest supersets the bus, and
+// every op the panel dispatches exists on the bus — but nothing checked that the panel
+// offers the *inputs* those ops accept. `test_model` shipped on the bus and in the CLI
+// and the panel's form never had a field for it, so an account whose tier excludes
+// Ferrule's picks could be added from a terminal and not from the surface a person uses.
+func TestThePanelOffersTheInputsItsOpsAccept(t *testing.T) {
+	r := newRig(t)
+	js := panelJS(t)
+
+	// Deliberate omissions, each with the reason it is one. A param listed here is a
+	// decision; a param missing from both lists is drift.
+	except := map[string]string{
+		// One click to send a key over plaintext http to another machine is not a thing
+		// the panel should offer. The CLI makes you type -insecure; the panel refuses the
+		// endpoint and says why.
+		"add_source.allow_insecure": "an explicit security acknowledgement, CLI-only on purpose",
+	}
+
+	for _, name := range panelOps(t) {
+		o, ok := r.bus.Op(name)
+		if !ok {
+			continue // covered by the parity test above
+		}
+		for _, p := range o.Params {
+			if _, skip := except[name+"."+p.Name]; skip {
+				continue
+			}
+			// Either the wire name, or the camelCase the panel uses when it holds the
+			// input as local state and filters what it already has rather than asking
+			// the server again. Both mean the person can express the thing.
+			if !strings.Contains(js, p.Name) && !strings.Contains(js, camel(p.Name)) {
+				t.Errorf("the panel dispatches %s but offers no %q; add a field, or list it "+
+					"in this test's exceptions with the reason", name, p.Name)
+			}
+		}
+	}
+}
+
+// camel turns a wire param name into the panel's local-state spelling: max_cost → maxCost.
+func camel(s string) string {
+	parts := strings.Split(s, "_")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}

@@ -339,3 +339,17 @@ progress.meter::-webkit-progress-value { background: var(--accent); }
 progress.meter::-moz-progress-bar { background: var(--accent); }
 progress.meter[data-cloud]::-webkit-progress-value { background: var(--warn); }
 progress.meter[data-cloud]::-moz-progress-bar { background: var(--warn); }
+
+/* A provider's verbatim refusal can be 200 characters of JSON. It stays available and
+   unaltered, one click below the sentence that says what to do about it. */
+.verbatim { margin-top: 8px; }
+.verbatim summary {
+  cursor: pointer; color: var(--ink-30); font-size: var(--t-micro-size);
+  letter-spacing: .06em; text-transform: uppercase; font-family: var(--mono);
+}
+.verbatim summary:hover { color: var(--ink-50); }
+.verbatim > .note {
+  margin-top: 6px; font-family: var(--mono); font-size: var(--t-micro-size);
+  line-height: 1.55; word-break: break-word; color: var(--ink-50);
+}
+header.bar input.cap { width: 13ch; }

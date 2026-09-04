@@ -88,7 +88,7 @@ const state = {
   addProvider: "",
   status: null,
   detecting: true,
-  filters: { where: "", capability: "", q: "" },
+  filters: { where: "", capability: "", q: "", maxCost: 0 },
   sort: { col: "model", dir: 1 },
 };
 
@@ -192,6 +192,10 @@ function visibleModels() {
     if (f.where && m.where !== f.where) return false;
     if (f.capability && !(m.capabilities || []).includes(f.capability)) return false;
     if (q && !(m.model + " " + m.source + " " + (m.capabilities || []).join(" ")).toLowerCase().includes(q)) return false;
+    // A cap answers "what can I run without thinking about it". A model with no price is
+    // not known to be under the cap, so it is not shown as though it were — the row count
+    // below says how many were held back for that reason rather than hiding the fact.
+    if (f.maxCost && !(m.in_cost_per_mtok > 0 && m.in_cost_per_mtok <= f.maxCost)) return false;
     return true;
   });
   const col = COLS.find((c) => c.id === state.sort.col) || COLS[0];
@@ -228,6 +232,15 @@ function renderBoard(pane, bar) {
       type: "search", placeholder: T("ui.filter.search"), value: state.filters.q,
       oninput: (e) => { state.filters.q = e.target.value; renderBoardBody(); },
     }),
+    el("input", {
+      type: "number", class: "cap", min: "0", step: "0.25", inputmode: "decimal",
+      "aria-label": T("ui.filter.maxCost"), placeholder: T("ui.filter.maxCostPlaceholder"),
+      value: state.filters.maxCost || "",
+      oninput: (e) => {
+        state.filters.maxCost = parseFloat(e.target.value) || 0;
+        renderBoardBody();
+      },
+    }),
     el("div", { class: "spacer" }),
     el("button", { class: "act", type: "button", text: T("ui.action.rescan"), onclick: rescan }),
   );
@@ -253,7 +266,8 @@ function renderBoard(pane, bar) {
     )),
     el("tbody", { id: "board-body" }),
   );
-  pane.replaceChildren(sourceStrip(), table);
+  pane.replaceChildren(sourceStrip(), table,
+    el("p", { id: "board-note", class: "note pad", hidden: true }));
   renderBoardBody();
 }
 
@@ -277,6 +291,15 @@ function renderBoardBody() {
     body.replaceChildren(el("tr", {}, el("td", { colspan: String(COLS.length) },
       el("div", { class: "state", text: T("ui.board.noMatch") }))));
   }
+  const note = $("#board-note");
+  if (note) {
+    // A price cap silently drops every model the catalog has no price for, and on a
+    // provider the catalog barely covers that is most of them. Say the number.
+    const unpriced = state.filters.maxCost
+      ? state.models.filter((m) => !(m.in_cost_per_mtok > 0)).length : 0;
+    note.textContent = unpriced ? T("ui.board.unpriced", unpriced) : "";
+    note.hidden = !unpriced;
+  }
 }
 
 function sourceStrip() {
@@ -298,9 +321,14 @@ function sourceStrip() {
               })
             : null,
         ),
-        s.status === "failed" ? el("div", { class: "why", text: s.reason }) : null,
-        // What happened, then the exact next move — the second half is the useful half.
-        s.status === "failed" && s.remedy ? el("div", { class: "note", text: s.remedy }) : null,
+        // The remedy leads. It is the half that says what to do, and it was rendered
+        // under a wall of the provider's raw JSON — a real DeepSeek refusal is 180
+        // characters of it, which made the useful sentence the one you had to scroll to.
+        // Nothing is hidden: the provider's own words are one click away, verbatim.
+        s.status === "failed" && s.remedy ? el("div", { class: "why", text: s.remedy }) : null,
+        s.status === "failed" ? el("details", { class: "verbatim" },
+          el("summary", { text: T("ui.source.whatProviderSaid") }),
+          el("div", { class: "note", text: s.reason })) : null,
         el("div", { class: "actions" },
           el("button", { class: "act", type: "button", text: T("ui.action.refresh"),
             onclick: () => run(() => op("refresh_source", { id: s.id }), T("ui.action.refresh")) }),
@@ -470,6 +498,8 @@ function renderAdd(pane, bar) {
   const nameIn = el("input", { type: "text", placeholder: T("ui.add.namePlaceholder") });
   const keyIn = el("input", { type: "password", placeholder: "—", autocomplete: "off", spellcheck: "false" });
   const baseIn = el("input", { type: "text", placeholder: "https://…/v1" });
+  const testIn = el("input", { type: "text", placeholder: T("ui.add.testModelPlaceholder"),
+    autocomplete: "off", spellcheck: "false" });
   const out = el("div", {}, addResult());
 
   const sync = () => {
@@ -501,6 +531,7 @@ function renderAdd(pane, bar) {
         try {
           const r = await op("add_source", {
             provider: sel.value, name: nameIn.value, base_url: baseIn.value, key: keyIn.value,
+            test_model: testIn.value.trim(),
           });
           keyIn.value = "";
           // The result is held in state, not in this node: the refresh below rebuilds
@@ -516,9 +547,11 @@ function renderAdd(pane, bar) {
       el("label", { class: "field" }, T("ui.add.provider"), sel),
       el("label", { class: "field" }, T("ui.add.name"), nameIn),
       el("label", { class: "field" }, T("ui.add.key"), keyIn),
+      el("label", { class: "field" }, T("ui.add.testModel"), testIn),
       el("label", { class: "field grow" }, T("ui.add.baseUrl"), baseIn),
       el("button", { class: "act", "data-primary": true, type: "submit", text: T("ui.add.submit") }),
     ),
+    el("p", { class: "note mt10", text: T("ui.add.testModelHint") }),
     out,
     el("div", { class: "note mt22" },
       el("strong", { text: T("ui.add.detectTitle") }), " ", T("ui.add.detectBody"), " ",
@@ -547,7 +580,9 @@ function addResult() {
     el("h3", { text: T("source.failed", r.source.name, "") }),
     el("div", { class: "why", text: reason.message || "" }),
     reason.remedy ? el("p", { class: "note", text: reason.remedy }) : null,
-    el("p", { class: "note", text: T("ui.add.failHint") }));
+    el("p", { class: "note", text: r.kept
+      ? T("ui.add.keptHint", r.source.name)
+      : T("ui.add.failHint") }));
 }
 
 /* ---------- usage + egress ---------- */
