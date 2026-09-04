@@ -41,6 +41,10 @@ func (s *API) SetLANEndpoint(ep string) { s.bus.lanEndpoint = ep }
 // choice instead of presenting one guess as a fact.
 func (s *API) SetLANEndpoints(eps []string) { s.bus.lanEndpoints = eps }
 
+// SetServeArgs records the arguments this daemon was started with, so registering a login
+// item reproduces this daemon rather than a default one.
+func (s *API) SetServeArgs(args []string) { s.bus.serveArgs = args }
+
 // Bus exposes the command bus (the CLI and the tests dispatch through it directly).
 func (s *API) Bus() *Bus { return s.bus }
 

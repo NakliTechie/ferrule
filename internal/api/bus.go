@@ -101,6 +101,9 @@ type Bus struct {
 	lanEndpoint string
 	// lanEndpoints is every address they could reach it at, best guess first.
 	lanEndpoints []string
+	// serveArgs are the arguments this daemon was started with, so a login item can start
+	// the same daemon rather than a default one.
+	serveArgs []string
 }
 
 // NewBus registers every control op against a core.

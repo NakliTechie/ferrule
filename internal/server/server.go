@@ -40,6 +40,11 @@ type Options struct {
 	// It is offered first and the detected addresses stay available beneath it, because a
 	// name that does not resolve on someone's phone is a worse failure than an IP.
 	Advertise string
+	// ServeArgs are the arguments that reproduce this daemon on a later start. A login
+	// item registered without them starts a default Ferrule — a different port, a
+	// different config directory — which comes back after a reboot looking like an empty
+	// install.
+	ServeArgs []string
 }
 
 // Server is the running daemon.
@@ -75,6 +80,7 @@ func New(a *app.App, o Options) (*Server, error) {
 	mux := http.NewServeMux()
 	control := api.New(a)
 	srv := &Server{app: a, ln: ln, advertise: o.Advertise}
+	control.SetServeArgs(o.ServeArgs)
 	control.SetLANEndpoints(srv.LANEndpoints())
 	control.SetLANEndpoint(srv.LANEndpoint())
 	router.New(a.DB, a.Vault).Mount(mux)
@@ -262,9 +268,11 @@ func guardShared(a *app.App, next http.Handler) http.Handler {
 }
 
 // sharingOn reads the setting, defaulting to on. A database Ferrule cannot read is not a
-// reason to start serving the network: an unreadable setting falls closed.
+// reason to start serving the network, so an unreadable setting falls closed — which is
+// what this comment claimed before SettingOK existed to make it true.
 func sharingOn(a *app.App) bool {
-	return a.DB.Setting(store.SetSharing, "on") == "on"
+	v, ok := a.DB.SettingOK(store.SetSharing, "on")
+	return ok && v == "on"
 }
 
 // reachable reports whether this listener can be reached from another machine at all —
@@ -308,7 +316,13 @@ func guardOrigin(a *app.App, next http.Handler) http.Handler {
 		if api.LocalOrigin(origin) || crossOriginAllowed(a, r.URL.Path) {
 			if crossOriginAllowed(a, r.URL.Path) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				// Without the control header the setting was decorative: every call it
+				// let through then failed authentication, because the browser's preflight
+				// stripped the one header the op API requires. Allowing it is safe — the
+				// token lives in a page on a different origin and a cross-origin script
+				// still cannot read it, so this permits a local developer who has been
+				// given the token, and nobody else.
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+api.HeaderName)
 				w.Header().Set("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {

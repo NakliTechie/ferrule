@@ -109,7 +109,15 @@ func Disable(configDir string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	_ = systemctl("disable", "--now", unitName)
+	// A failure here used to be swallowed and the file removed anyway, so the panel could
+	// report startup off while a loaded job kept running — and with the unit file gone
+	// there was no longer anything to disable it with.
+	out, err := systemctlOut("disable", "--now", unitName)
+	if err != nil && !noUserManager(out) && !strings.Contains(out, "does not exist") &&
+		!strings.Contains(out, "No such file") {
+		return Status(configDir), fmt.Errorf("%s: %s", i18n.T("startup.systemctlFailed"),
+			strings.TrimSpace(out))
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return State{}, err
 	}

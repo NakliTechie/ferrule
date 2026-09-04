@@ -42,10 +42,15 @@ func Mount(mux *http.ServeMux, controlToken string) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// This page carries the control token. It has no reason to be inside anybody's
+		// frame, and a hostile page that frames it can put an invisible layer over
+		// "Remove" or "Make a new key" and collect the click.
+		w.Header().Set("X-Frame-Options", "DENY")
 		// The panel talks only to this daemon. Saying so in a header means a mistake in
 		// the panel cannot quietly become an outbound request.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'")
+			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "+
+				"connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		raw, err := fs.ReadFile(sub, "index.html")

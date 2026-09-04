@@ -36,12 +36,41 @@ func ferruleOn(port int) bool {
 	return bytes.Contains(body, []byte("ferrule_error"))
 }
 
+// serveArgs reproduces this invocation, minus what a fresh start works out for itself.
+// Only what differs from the default is recorded, so a login item registered on a plain
+// `ferrule serve` stays a plain `ferrule serve`.
+func serveArgs(host string, port int, advertise string, noDetect bool, dir string) []string {
+	var out []string
+	if def, err := config.Dir(); err != nil || dir != def {
+		// Only when it is not where a fresh start would look. Recording the default would
+		// pin the login item to a path that is otherwise free to move.
+		out = append(out, "-config-dir", dir)
+	}
+	if host != "0.0.0.0" {
+		out = append(out, "-host", host)
+	}
+	if port != config.DefaultPort {
+		out = append(out, "-port", fmt.Sprint(port))
+	}
+	if advertise != "" {
+		out = append(out, "-advertise", advertise)
+	}
+	if noDetect {
+		out = append(out, "-no-detect")
+	}
+	return out
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", envPort(), "port to listen on")
 	host := fs.String("host", "0.0.0.0", "address to bind; use 127.0.0.1 to close the port to the network entirely")
 	passphrase := fs.Bool("passphrase", false, "prompt for a passphrase to unlock the vault, so nothing that can open it is written to disk")
 	noDetect := fs.Bool("no-detect", false, "skip the startup scan for local runtimes")
+	// FERRULE_CONFIG_DIR is the general mechanism and an environment variable cannot be
+	// carried into a launchd plist, a systemd unit and a scheduled task uniformly. This
+	// flag is how a login item says out loud which Ferrule it is starting.
+	configDir := fs.String("config-dir", "", "where Ferrule keeps its state; defaults to FERRULE_CONFIG_DIR or the usual place")
 	advertise := fs.String("advertise", "", "the address to hand out instead of a detected one — a hostname survives DHCP, an address does not")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -56,7 +85,7 @@ func cmdServe(args []string) error {
 			return err
 		}
 	}
-	a, err := app.Open(app.Options{Passphrase: pass})
+	a, err := app.Open(app.Options{Passphrase: pass, Dir: *configDir})
 	if err != nil {
 		return err
 	}
@@ -64,6 +93,7 @@ func cmdServe(args []string) error {
 
 	srv, err := server.New(a, server.Options{
 		Addr: fmt.Sprintf("%s:%d", *host, *port), Advertise: *advertise,
+		ServeArgs: serveArgs(*host, *port, *advertise, *noDetect, a.Dir),
 	})
 	if err != nil {
 		// A login item and a double-clicked app both want to make sure Ferrule is

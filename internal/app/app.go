@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -129,9 +130,13 @@ func (a *App) householdKey() (store.Grant, string, error) {
 		if err == nil {
 			return g, tok, nil
 		}
-		// The row says there is a shared key and the vault cannot produce it. Nothing can
-		// authenticate with a token nobody has, so the honest repair is to retire this
-		// grant and mint one that works, rather than showing a key that is not the key.
+		// Only a genuinely absent entry is repaired by retiring the grant. Any vault
+		// error used to do it — a locked file, a passphrase vault, a bad read — and the
+		// repair revokes the one credential every device in the house is using. A
+		// transient fault must not cost everyone their access.
+		if !errors.Is(err, vault.ErrNotFound) {
+			return store.Grant{}, "", err
+		}
 		_ = a.DB.RevokeGrant(g.ID)
 	}
 	g, tok, err := a.DB.MintGrant(HouseholdApp, true)
@@ -157,16 +162,37 @@ func (a *App) RegenerateHouseholdKey() (store.Grant, string, error) {
 	if err != nil {
 		return store.Grant{}, "", err
 	}
+	// The replacement is provisioned before the old one is retired. The other order
+	// leaves a window with no household key at all, and if minting then fails the house
+	// is locked out of a working Ferrule by an operation that was meant to be routine.
+	old := make([]store.Grant, 0, 1)
 	for _, g := range grants {
 		if g.Shared && !g.Revoked() {
-			if err := a.DB.RevokeGrant(g.ID); err != nil {
-				return store.Grant{}, "", err
-			}
-			// The old token has no use now and is one more secret on disk than needed.
-			_ = a.Vault.Delete(vault.GrantRef(g.ID))
+			old = append(old, g)
 		}
 	}
-	return a.householdKey()
+	for _, g := range old {
+		// Unshare rather than revoke, so householdKey below does not adopt it again.
+		if _, err := a.DB.SQL().Exec(`UPDATE grants SET shared=0 WHERE id=?`, g.ID); err != nil {
+			return store.Grant{}, "", err
+		}
+	}
+	fresh, tok, err := a.householdKey()
+	if err != nil {
+		// Put things back the way they were rather than leaving the house with nothing.
+		for _, g := range old {
+			_, _ = a.DB.SQL().Exec(`UPDATE grants SET shared=1 WHERE id=?`, g.ID)
+		}
+		return store.Grant{}, "", err
+	}
+	for _, g := range old {
+		if err := a.DB.RevokeGrant(g.ID); err != nil {
+			return store.Grant{}, "", err
+		}
+		// The old token has no use now and is one more secret on disk than needed.
+		_ = a.Vault.Delete(vault.GrantRef(g.ID))
+	}
+	return fresh, tok, nil
 }
 
 // HouseholdApp is the name the shared key is recorded under, so the usage view says

@@ -146,10 +146,10 @@ func TestCheckpointMediaPassthroughLane(t *testing.T) {
 // A media-lane model is not silently normalized into the unified endpoint (§4.8).
 func TestPassthroughLaneIsNotServedByTheUnifiedEndpoint(t *testing.T) {
 	r := newRig(t)
-	up := offMachineMock(t, "r8_key")
+	up := offMachineMock(t, "r8_key_long_enough")
 	defer up.Close()
 	if _, err := r.app.Discovery.Add(context.Background(), discovery.AddRequest{
-		Name: "replicate", Provider: "replicate", BaseURL: up.BaseURL(), Key: "r8_key",
+		Name: "replicate", Provider: "replicate", BaseURL: up.BaseURL(), Key: "r8_key_long_enough",
 		AllowInsecure: true,
 	}); err != nil {
 		t.Fatal(err)

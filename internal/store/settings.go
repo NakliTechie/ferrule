@@ -7,14 +7,29 @@ import (
 	"errors"
 )
 
-// Setting reads a setting, returning def when unset.
+// Setting reads a setting, returning def when unset or unreadable.
 func (d *DB) Setting(k, def string) string {
+	v, _ := d.SettingOK(k, def)
+	return v
+}
+
+// SettingOK reads a setting and says whether the answer is trustworthy.
+//
+// "Not set yet" and "the database would not answer" are different facts, and Setting
+// returns the default for both. For a setting that opens a network port that is the wrong
+// way round: a failed read re-enabled LAN inference after the person had turned it off,
+// while the code that called it carried a comment saying an unreadable setting falls
+// closed. It did not. Callers that guard something ask this one.
+func (d *DB) SettingOK(k, def string) (string, bool) {
 	var v string
 	err := d.sql.QueryRow(`SELECT v FROM settings WHERE k=?`, k).Scan(&v)
-	if err != nil {
-		return def
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return def, true // genuinely unset; the default is the answer
+	case err != nil:
+		return def, false
 	}
-	return v
+	return v, true
 }
 
 // SetSetting writes a setting.

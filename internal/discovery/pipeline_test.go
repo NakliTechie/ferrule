@@ -365,7 +365,7 @@ func TestCredentialsCannotRideInABaseURL(t *testing.T) {
 		"https://api.example.com/v1?access_token=abc123",
 	} {
 		_, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
-			Name: "x", Provider: "openai-compatible", BaseURL: u, Key: "sk-real",
+			Name: "x", Provider: "openai-compatible", BaseURL: u, Key: "sk-real-enough-to-store",
 		})
 		if err == nil {
 			t.Errorf("%s was accepted", u)
@@ -440,7 +440,7 @@ func TestARefusalIsNamedByWhatTheProviderActuallySaid(t *testing.T) {
 	t.Run("no balance stops immediately and says the key is fine", func(t *testing.T) {
 		a := newApp(t)
 		// DeepSeek, verbatim.
-		up := mock.New("sk-real", "deepseek-chat", "deepseek-reasoner")
+		up := mock.New("sk-real-enough-to-store", "deepseek-chat", "deepseek-reasoner")
 		up.RefuseChat = map[string]mock.Refusal{"": {
 			Status: 402,
 			Body:   `{"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}`,
@@ -448,7 +448,7 @@ func TestARefusalIsNamedByWhatTheProviderActuallySaid(t *testing.T) {
 		defer up.Close()
 
 		r, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
-			Name: "deepseek", Provider: "deepseek", BaseURL: up.BaseURL(), Key: "sk-real",
+			Name: "deepseek", Provider: "deepseek", BaseURL: up.BaseURL(), Key: "sk-real-enough-to-store",
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -189,20 +189,27 @@ func (b *Bus) register() {
 			if err != nil {
 				return nil, err
 			}
-			spend, err := a.DB.Aggregate([]string{"app"}, 0)
+			spend, err := a.DB.Aggregate([]string{"grant"}, 0)
 			if err != nil {
 				return nil, err
 			}
-			byApp := map[string]store.Bucket{}
+			byGrant := map[string]store.Bucket{}
 			for _, s := range spend {
-				byApp[s.App] = s
+				byGrant[s.GrantID] = s
 			}
 			out := make([]map[string]any, 0, len(gs))
 			for _, g := range gs {
-				s := byApp[g.App]
+				// Per grant, not per label. Two tokens named "anaya" were each shown the
+				// pair's combined total, so the per-person accounting that is the whole
+				// reason to give people their own keys reported the same number twice.
+				s := byGrant[g.ID]
 				out = append(out, map[string]any{
 					"id": g.ID, "app": g.App, "created_at": g.CreatedAt,
 					"revoked": g.Revoked(), "revoked_at": g.RevokedAt,
+					// Without this the panel cannot tell the household key from a person
+					// and listed it among them, with an ordinary "turn off" button — one
+					// click from cutting off everybody.
+					"shared":   g.Shared,
 					"requests": s.Requests, "cost": s.Cost,
 				})
 			}
@@ -428,7 +435,11 @@ func (b *Bus) register() {
 			var err error
 			switch args.Str("value") {
 			case "on":
-				st, err = startup.Enable(a.Dir)
+				// The launcher has to run the daemon the person is actually running. A
+				// bare `serve` loses a non-default port, a narrow --host, an --advertise
+				// name and a FERRULE_CONFIG_DIR — so Ferrule worked until the machine was
+				// rebooted, and then came back on the wrong port with an empty vault.
+				st, err = startup.Enable(a.Dir, bus.serveArgs...)
 			case "off":
 				st, err = startup.Disable(a.Dir)
 			default:

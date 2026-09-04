@@ -224,9 +224,21 @@ func (v *ageVault) flush() error {
 	return os.Rename(tmp, v.path)
 }
 
+// MinSecret is the shortest secret the vault will accept.
+//
+// The nets that keep a key out of an error message, a status row or the ledger match from
+// eight characters — shorter than that they would redact ordinary words and make every
+// message useless. That floor is only honest if nothing shorter can be stored, so this is
+// where it is enforced. No provider issues a key this short; a value that is one is a
+// mistake, and storing it would put something unredactable inside Ferrule.
+const MinSecret = 8
+
 func (v *ageVault) Put(ref, secret string) error {
 	if strings.TrimSpace(secret) == "" {
 		return errors.New(i18n.T("vault.plaintextRefused"))
+	}
+	if len(strings.TrimSpace(secret)) < MinSecret {
+		return errors.New(i18n.T("vault.tooShort", MinSecret))
 	}
 	return v.mutate(func(m map[string]string) { m[ref] = secret })
 }

@@ -17,21 +17,24 @@ import (
 // So each passthrough provider declares the surface it actually needs. Anything else is
 // refused before the key is fetched from the vault, and the person is told they can make
 // that call directly — Ferrule is declining to lend the key, not declining the operation.
-type scope struct {
-	// prefixes are path prefixes, relative to the source's base URL, that inference
-	// legitimately touches.
-	prefixes []string
-	// methods that may be used against them.
-	methods map[string]bool
-}
+// scope is the set of routes inference legitimately touches on a provider, and the
+// methods each of them allows.
+//
+// Methods used to be one set covering every prefix, so allowing POST for predictions also
+// allowed POST to models and collections — which on Replicate creates a model. The comment
+// said those paths were for reading metadata; the code did not.
+type scope map[string]map[string]bool
 
 var scopes = map[string]scope{
 	// Replicate's inference surface: create a prediction, poll it, cancel it, and read
 	// the model metadata needed to build one. Not /account, not /trainings, not
 	// /deployments, not /files, not /webhooks.
 	"replicate": {
-		prefixes: []string{"predictions", "models", "collections"},
-		methods:  map[string]bool{http.MethodGet: true, http.MethodPost: true},
+		// Creating and polling a prediction is the whole point.
+		"predictions": {http.MethodGet: true, http.MethodPost: true},
+		// Metadata only. POST here creates a model on the person's account.
+		"models":      {http.MethodGet: true},
+		"collections": {http.MethodGet: true},
 	},
 }
 
@@ -71,18 +74,14 @@ func allowed(provider, method, tail string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if !sc.methods[method] {
-		return "", false
-	}
 	clean, ok := canonical(tail)
 	if !ok {
 		return "", false
 	}
 	head, _, _ := strings.Cut(clean, "/")
-	for _, p := range sc.prefixes {
-		if head == p {
-			return clean, true
-		}
+	methods, ok := sc[head]
+	if !ok || !methods[method] {
+		return "", false
 	}
-	return "", false
+	return clean, true
 }

@@ -832,3 +832,107 @@ func TestCredentialsAreNotResurrectedOrWrittenDown(t *testing.T) {
 		}
 	})
 }
+
+// Findings from the whole-app pass whose fixes are only real if something checks them.
+func TestTheMediumsStayFixed(t *testing.T) {
+	t.Run("an unreadable setting closes sharing rather than opening it", func(t *testing.T) {
+		// Setting() returns its default for "unset" and for "the database would not
+		// answer" alike, so a read failure re-enabled LAN inference after the person had
+		// turned it off — under a comment claiming the opposite.
+		ip := lanAddr(t)
+		a, err := app.Open(app.Options{Dir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer a.Close()
+		up := mock.New("", "qwen3:8b")
+		defer up.Close()
+		if _, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+			Name: "ollama", Provider: "ollama", BaseURL: up.BaseURL(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, tok, err := a.HouseholdKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err := server.New(a, server.Options{Addr: "0.0.0.0:0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go srv.Serve(ctx)
+		_, port, _ := net.SplitHostPort(srv.Addr())
+
+		// Break the settings table under the running daemon, the way a real fault would.
+		if _, err := a.DB.SQL().Exec(`DROP TABLE settings`); err != nil {
+			t.Fatal(err)
+		}
+		req, _ := http.NewRequest(http.MethodGet,
+			"http://"+net.JoinHostPort(ip, port)+"/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("an unreadable sharing setting served the network HTTP %d, want 403",
+				resp.StatusCode)
+		}
+	})
+
+	t.Run("the panel is told which key is the household's", func(t *testing.T) {
+		// Without it the panel cannot tell the shared key from a person, and listed it
+		// among them with an ordinary "turn off" — one click from cutting off everybody.
+		r := newRig(t)
+		if _, _, err := r.app.HouseholdKey(); err != nil {
+			t.Fatal(err)
+		}
+		res := string(mustJSON(t, r.opJSON(t, "list_grants", api.Args{})))
+		if !strings.Contains(res, `"shared":true`) {
+			t.Errorf("list_grants does not mark the household key:\n%s", res)
+		}
+	})
+
+	t.Run("two people with the same key name get their own totals", func(t *testing.T) {
+		// Spend was grouped by the app label, so a pair sharing a name were one row and
+		// each was shown the pair's total — reporting the same number twice for the
+		// per-person accounting that is the reason to hand out separate keys.
+		r := newRig(t)
+		up := mock.New("", "qwen3:8b")
+		defer up.Close()
+		r.addLocal(t, "ollama", up)
+		a, b := r.mint(t, "same-name"), r.mint(t, "same-name")
+		r.chat(t, a, "qwen3:8b", false)
+		for i := 0; i < 3; i++ {
+			r.chat(t, b, "qwen3:8b", false)
+		}
+		var counts []float64
+		for _, g := range grantsFrom(t, r) {
+			if g["app"] == "same-name" {
+				counts = append(counts, g["requests"].(float64))
+			}
+		}
+		if len(counts) != 2 {
+			t.Fatalf("%d grants named same-name, want 2", len(counts))
+		}
+		if counts[0] == counts[1] {
+			t.Errorf("both tokens report %v requests; they made 1 and 3", counts[0])
+		}
+	})
+}
+
+func grantsFrom(t *testing.T, r *rig) []map[string]any {
+	t.Helper()
+	m := r.opJSON(t, "list_grants", api.Args{})
+	list, _ := m["grants"].([]any)
+	out := make([]map[string]any, 0, len(list))
+	for _, g := range list {
+		if gm, ok := g.(map[string]any); ok {
+			out = append(out, gm)
+		}
+	}
+	return out
+}

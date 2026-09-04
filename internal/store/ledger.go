@@ -111,6 +111,7 @@ FROM ledger ORDER BY id DESC LIMIT ?`, limit)
 // Bucket is one aggregated row of the usage view.
 type Bucket struct {
 	Key              string  `json:"key"`
+	GrantID          string  `json:"grant_id,omitempty"`
 	App              string  `json:"app"`
 	SourceID         string  `json:"source_id"`
 	Provider         string  `json:"provider"`
@@ -130,6 +131,11 @@ type Bucket struct {
 // since is a millisecond timestamp; pass 0 for all time.
 func (d *DB) Aggregate(by []string, since int64) ([]Bucket, error) {
 	allowed := map[string]string{
+		// The ledger records which token made each request, so per-token spend is a
+		// question it can answer. Only "app" was groupable, so two people who named their
+		// key the same thing were one row — and the per-person accounting that is the
+		// reason to hand out separate keys reported the pair's total to each of them.
+		"grant":    "grant_id",
 		"app":      "app",
 		"model":    "model_id",
 		"source":   "source_id",
@@ -180,6 +186,8 @@ FROM ledger WHERE ts >= ? GROUP BY ` + sel + ` ORDER BY SUM(cost) DESC, COUNT(*)
 		}
 		for i, c := range cols {
 			switch c {
+			case "grant_id":
+				b.GrantID = strs[i]
 			case "app":
 				b.App = strs[i]
 			case "model_id":
