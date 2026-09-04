@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run demo sync-llms app
+.PHONY: build check test vet fmt dist clean run demo sync-llms app app-universal
 
 build: sync-llms
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
@@ -55,13 +55,27 @@ dist: sync-llms
 # is actually for. No new dependency: the icon is committed as .icns, the launcher is
 # three lines of shell, and the binary inside is the same one `make build` produces. The
 # bundle is self-contained, so it can be dragged to Applications or anywhere else.
+# One bundle that runs on both kinds of Mac. Go cannot emit a fat binary, so the two
+# builds are joined with lipo — otherwise a download page has to ask people which
+# processor they have, which is a question a household app has no business asking.
+app-universal:
+	@mkdir -p dist
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/.ferrule-arm64 ./cmd/ferrule
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/.ferrule-amd64 ./cmd/ferrule
+	@lipo -create -output dist/.ferrule-universal dist/.ferrule-arm64 dist/.ferrule-amd64
+	@rm -f dist/.ferrule-arm64 dist/.ferrule-amd64
+	@$(MAKE) --no-print-directory app BINARY_FOR_APP=dist/.ferrule-universal
+	@rm -f dist/.ferrule-universal
+	@cd dist && ditto -c -k --keepParent Ferrule.app Ferrule-macos.zip
+	@echo "dist/Ferrule-macos.zip — universal, arm64 + amd64"
+
 app: build
 	@rm -rf dist/Ferrule.app
 	@mkdir -p dist/Ferrule.app/Contents/MacOS dist/Ferrule.app/Contents/Resources
 	@sed 's/__VERSION__/$(VERSION)/g' packaging/Info.plist > dist/Ferrule.app/Contents/Info.plist
 	@cp packaging/Ferrule.icns dist/Ferrule.app/Contents/Resources/Ferrule.icns
 	@cp packaging/launcher.sh dist/Ferrule.app/Contents/MacOS/Ferrule
-	@cp $(BINARY) dist/Ferrule.app/Contents/Resources/ferrule
+	@cp $(or $(BINARY_FOR_APP),$(BINARY)) dist/Ferrule.app/Contents/Resources/ferrule
 	@chmod +x dist/Ferrule.app/Contents/MacOS/Ferrule dist/Ferrule.app/Contents/Resources/ferrule
 	@printf 'APPL????' > dist/Ferrule.app/Contents/PkgInfo
 	@echo "dist/Ferrule.app — drag it to Applications, or double-click it where it is."

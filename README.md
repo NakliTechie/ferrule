@@ -25,9 +25,16 @@ go install github.com/NakliTechie/ferrule/cmd/ferrule@latest
 ferrule serve
 ```
 
-Then open <http://localhost:8899>. Prebuilt binaries for macOS, Linux and Windows are on
-each release, with checksums; there are no runtime dependencies. On a Mac, `make app`
-writes a double-clickable `Ferrule.app`.
+Then open <http://localhost:8899>.
+
+Or take a prebuilt binary from the [latest release](../../releases/latest) — no runtime
+dependencies, checksums in `SHA256SUMS`:
+
+| | |
+|---|---|
+| **macOS** | `Ferrule-macos.zip` → unzip, drag `Ferrule.app` to Applications, double-click. One app for Apple Silicon and Intel. |
+| **Linux** | `ferrule-linux-arm64` / `-amd64` → `chmod +x`, then `ferrule serve`. |
+| **Windows** | `ferrule-windows-amd64.exe` → run it, then open the panel. |
 
 ## Use it
 

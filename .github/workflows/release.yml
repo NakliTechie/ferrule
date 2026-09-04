@@ -9,18 +9,47 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # macOS, so the Mac bundle can be built and its two architectures joined with lipo.
+    # Everything else cross-compiles from here with cgo off, so one job produces the whole
+    # release rather than two that have to agree with each other.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache: true
+
+      # The gate runs against the thing being released, not against main.
       - run: make check
+
       - run: make dist VERSION=${GITHUB_REF_NAME}
+      - run: make app-universal VERSION=${GITHUB_REF_NAME}
+
+      # The checksums are regenerated after the bundle exists, so the file people are
+      # most likely to download is the one most likely to be covered.
+      - name: checksum everything that ships
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          shasum -a 256 ferrule-* Ferrule-macos.zip > SHA256SUMS
+          cat SHA256SUMS
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/ferrule-*
+            dist/Ferrule-macos.zip
             dist/SHA256SUMS
           generate_release_notes: true
+          body: |
+            **macOS** — download `Ferrule-macos.zip`, unzip, drag `Ferrule.app` to
+            Applications, double-click. Universal: one app for Apple Silicon and Intel.
+            It is not notarised, so the first open needs right-click → Open.
+
+            **Linux / Windows** — download the binary for your machine, make it
+            executable, run `ferrule serve`, open <http://localhost:8899>.
+
+            **Go** — `go install github.com/NakliTechie/ferrule/cmd/ferrule@${{ github.ref_name }}`
+
+            Verify what you downloaded against `SHA256SUMS`.
