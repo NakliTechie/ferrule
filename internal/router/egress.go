@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Peer classifies the address a connection was actually made to. This is the

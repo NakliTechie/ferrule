@@ -3,9 +3,9 @@ package api
 import (
 	"time"
 
-	"ferrule/internal/app"
-	"ferrule/internal/i18n"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 func sinceMillis(hours int) int64 {

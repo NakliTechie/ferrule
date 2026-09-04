@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"ferrule/internal/api"
-	"ferrule/internal/app"
-	"ferrule/internal/i18n"
-	"ferrule/internal/passthrough"
-	"ferrule/internal/router"
-	"ferrule/internal/store"
-	"ferrule/internal/ui"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/passthrough"
+	"github.com/NakliTechie/ferrule/internal/router"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/ui"
 )
 
 // Options configure the daemon.

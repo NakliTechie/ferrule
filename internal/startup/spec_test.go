@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ferrule/internal/startup"
+	"github.com/NakliTechie/ferrule/internal/startup"
 )
 
 // Ferrule is developed on a Mac and registers itself at login on three platforms. The two

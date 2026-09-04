@@ -15,13 +15,13 @@ import (
 	"io"
 	"regexp"
 
-	"ferrule/internal/api"
-	"ferrule/internal/app"
-	"ferrule/internal/discovery"
-	"ferrule/internal/mock"
-	"ferrule/internal/server"
-	"ferrule/internal/store"
-	"ferrule/internal/ui"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/server"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/ui"
 )
 
 // mcpCall drives the agent face the way a client does: through the manifest, over the

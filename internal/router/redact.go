@@ -1,7 +1,7 @@
 package router
 
 import (
-	"ferrule/internal/secrets"
+	"github.com/NakliTechie/ferrule/internal/secrets"
 	"strings"
 )
 

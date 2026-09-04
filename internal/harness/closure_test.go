@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"ferrule/internal/api"
-	"ferrule/internal/app"
-	"ferrule/internal/mock"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Closure (§4.2): the person can export their whole configuration as one portable file

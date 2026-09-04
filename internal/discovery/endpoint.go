@@ -1,7 +1,7 @@
 package discovery
 
 import (
-	"ferrule/internal/secrets"
+	"github.com/NakliTechie/ferrule/internal/secrets"
 	"net"
 	"net/url"
 	"strings"

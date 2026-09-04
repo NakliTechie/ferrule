@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os/exec"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // Status asks Task Scheduler whether the logon task exists.

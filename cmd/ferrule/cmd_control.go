@@ -9,9 +9,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"ferrule/internal/api"
-	"ferrule/internal/config"
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/config"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // dispatch runs a control op through the same command bus the panel and the agent face

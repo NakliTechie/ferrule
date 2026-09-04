@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Listing names the model-listing dialect a source speaks.

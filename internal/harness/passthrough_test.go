@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"ferrule/internal/discovery"
-	"ferrule/internal/mock"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Checkpoint 5 (§4.10.5): a prediction runs end-to-end through the passthrough mount; the

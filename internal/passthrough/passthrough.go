@@ -15,11 +15,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/router"
-	"ferrule/internal/store"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/router"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // Prefix is the mount root. A source named `replicate` is reached at /p/replicate/…

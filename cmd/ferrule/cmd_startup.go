@@ -6,9 +6,9 @@ import (
 	"flag"
 	"fmt"
 
-	"ferrule/internal/api"
-	"ferrule/internal/i18n"
-	"ferrule/internal/startup"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/startup"
 )
 
 // cmdStartup registers or unregisters the daemon with the login manager.

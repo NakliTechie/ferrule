@@ -2,7 +2,7 @@ package discovery
 
 import (
 	"context"
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Detection asks two different questions and gives each the budget it deserves.

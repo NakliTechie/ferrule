@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
 )
 
 //go:embed assets

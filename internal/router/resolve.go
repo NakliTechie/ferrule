@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Target is one rung the router may try: a live source and a model on it.

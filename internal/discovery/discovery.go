@@ -16,11 +16,11 @@ import (
 	"strings"
 	"sync"
 
-	"ferrule/internal/catalog"
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/catalog"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // maxLiveProbes caps how many unclassified models get a live probe per add. Bounded so

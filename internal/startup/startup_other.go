@@ -5,8 +5,8 @@ package startup
 import (
 	"fmt"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // macOS, Linux and Windows are covered. Anywhere else, saying so

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"ferrule/internal/api"
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // cmdStatus is the single perception act: one bounded read of the whole situation, for a

@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"time"
 
-	"ferrule/internal/config"
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/config"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // cmdOpen is what double-clicking Ferrule.app runs: make sure a daemon is up, then show

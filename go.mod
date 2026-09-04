@@ -1,4 +1,4 @@
-module ferrule
+module github.com/NakliTechie/ferrule
 
 go 1.25.3
 

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"ferrule/internal/api"
-	"ferrule/internal/mock"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // Checkpoint 2 (§4.10.2): an OpenAI-shaped client with a Ferrule app token completes a

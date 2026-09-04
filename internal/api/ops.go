@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"ferrule/internal/app"
-	"ferrule/internal/catalog"
-	"ferrule/internal/discovery"
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/startup"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/catalog"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/startup"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 func stagedMsg(op string) string        { return i18n.T("mcp.stage.pending", op) }

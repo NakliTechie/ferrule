@@ -5,16 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"ferrule/internal/secrets"
+	"github.com/NakliTechie/ferrule/internal/secrets"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // trimKnown removes an exact secret before the shape net runs.

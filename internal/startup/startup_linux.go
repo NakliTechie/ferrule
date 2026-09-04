@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 const unitName = "ferrule.service"

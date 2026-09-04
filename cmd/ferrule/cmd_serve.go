@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"ferrule/internal/app"
-	"ferrule/internal/config"
-	"ferrule/internal/i18n"
-	"ferrule/internal/server"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/config"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/server"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // ferruleOn reports whether the thing holding a port is a Ferrule daemon. It asks the

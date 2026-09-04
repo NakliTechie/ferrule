@@ -7,13 +7,13 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"ferrule/internal/secrets"
 	"fmt"
+	"github.com/NakliTechie/ferrule/internal/secrets"
 	"net/url"
 	"sort"
 	"strings"
 
-	"ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/app"
 )
 
 // Door names where a control call came from.

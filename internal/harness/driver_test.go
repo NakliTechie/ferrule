@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/app"
 
-	"ferrule/internal/api"
-	"ferrule/internal/discovery"
-	"ferrule/internal/mock"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // The agent contract (SPEC.md §0). These are the properties an agent driving Ferrule is
@@ -279,7 +279,7 @@ func TestAddingTheSameSourceTwiceIsIdempotent(t *testing.T) {
 func buildFerrule(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "ferrule")
-	cmd := exec.Command("go", "build", "-o", bin, "ferrule/cmd/ferrule")
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/NakliTechie/ferrule/cmd/ferrule")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building ferrule: %v\n%s", err, out)
 	}

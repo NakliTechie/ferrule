@@ -1,8 +1,8 @@
 package discovery
 
 import (
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
 )
 
 // Code is the closed vocabulary of reasons a source does not go live.

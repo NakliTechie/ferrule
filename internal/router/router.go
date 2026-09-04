@@ -19,10 +19,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // Router serves the OpenAI-compatible endpoints.

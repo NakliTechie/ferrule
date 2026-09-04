@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // Strings are externalized from the first commit (FERRULE.md preamble). This is the

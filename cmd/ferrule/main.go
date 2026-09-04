@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"ferrule/internal/app"
-	"ferrule/internal/discovery"
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // Version is stamped at build time: go build -ldflags "-X main.Version=v1.0.0".

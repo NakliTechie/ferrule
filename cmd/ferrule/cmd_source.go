@@ -13,11 +13,11 @@ import (
 
 	"golang.org/x/term"
 
-	"ferrule/internal/api"
-	"ferrule/internal/discovery"
-	"ferrule/internal/i18n"
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 func cmdAdd(args []string) error {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/app"
 )
 
 // API serves the control plane over HTTP for the embedded panel.

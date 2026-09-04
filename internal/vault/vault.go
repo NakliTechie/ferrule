@@ -47,7 +47,7 @@ import (
 
 	"filippo.io/age"
 
-	"ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/i18n"
 )
 
 // ErrNotFound is returned when no secret is stored under a ref.

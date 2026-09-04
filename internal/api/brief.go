@@ -4,10 +4,10 @@ import (
 	"context"
 	"sort"
 
-	"ferrule/internal/app"
-	"ferrule/internal/discovery"
-	"ferrule/internal/i18n"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // briefFailures and briefCalls bound the two history windows. The brief's size grows

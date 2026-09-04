@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"ferrule/internal/api"
-	"ferrule/internal/app"
-	"ferrule/internal/discovery"
-	"ferrule/internal/mock"
-	"ferrule/internal/passthrough"
-	"ferrule/internal/router"
-	"ferrule/internal/store"
-	"ferrule/internal/ui"
+	"github.com/NakliTechie/ferrule/internal/api"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/passthrough"
+	"github.com/NakliTechie/ferrule/internal/router"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/ui"
 )
 
 // rig is a whole Ferrule in memory: core, mounted endpoints, and a client.

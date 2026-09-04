@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // A cloud provider held one real request for 196 seconds and then answered 500 with an

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ferrule/internal/i18n"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/i18n"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // label is the launchd job name. It is also the file name, so changing it strands the

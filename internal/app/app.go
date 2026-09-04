@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"sync"
 
-	"ferrule/internal/catalog"
-	"ferrule/internal/config"
-	"ferrule/internal/discovery"
-	"ferrule/internal/store"
-	"ferrule/internal/vault"
+	"github.com/NakliTechie/ferrule/internal/catalog"
+	"github.com/NakliTechie/ferrule/internal/config"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/vault"
 )
 
 // App holds the opened core.

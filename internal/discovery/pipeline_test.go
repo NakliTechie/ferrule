@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"ferrule/internal/app"
-	"ferrule/internal/discovery"
-	"ferrule/internal/mock"
-	"ferrule/internal/provider"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/app"
+	"github.com/NakliTechie/ferrule/internal/discovery"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/provider"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 func newApp(t *testing.T) *app.App {

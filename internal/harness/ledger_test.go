@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"ferrule/internal/mock"
-	"ferrule/internal/router"
-	"ferrule/internal/store"
+	"github.com/NakliTechie/ferrule/internal/mock"
+	"github.com/NakliTechie/ferrule/internal/router"
+	"github.com/NakliTechie/ferrule/internal/store"
 )
 
 // lanAddr finds a non-loopback address on this machine. A mock bound there is genuinely
