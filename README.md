@@ -98,6 +98,11 @@ the panel. The bundle carries its own copy of the binary, so it works wherever y
 
 Logs go to `~/Library/Logs/ferrule.log`.
 
+Ferrule is not signed or notarised, so the first time you open `Ferrule.app` macOS will
+say it cannot check it for malicious software. Right-click it and choose Open, or allow it
+once in System Settings → Privacy & Security. The binaries in a release are built by
+`make dist` from the tagged commit and their checksums are in `SHA256SUMS`.
+
 ## Starting it at login
 
 The panel has a **Start when I log in** switch; `ferrule startup on` does the same from a
@@ -207,9 +212,29 @@ behind your back is a key you can see was used.
 An exported configuration is sealed under its own passphrase, so the file that leaves
 this machine is not protected by anything left on it.
 
-The daemon binds to localhost only. The control plane refuses cross-origin requests
-unless you turn on the developer setting; the inference endpoints authenticate with an
-app token instead.
+**The daemon listens on every interface, and that is the point** — a box the house
+cannot reach is not a household router. It is worth being precise about what that does
+and does not open, because "a key vault that opens a port" deserves a straight answer:
+
+- **Inference** (`/v1`, `/p`) is served to your network, and only with a valid Ferrule
+  app token. No token, 401. Turn sharing off in the panel and the network gets 403 on the
+  next request, with no restart. `ferrule serve --host 127.0.0.1` closes the port
+  outright, and no setting reopens it.
+- **Everything else** — the panel, the vault, minting tokens, reading the ledger,
+  exporting configuration, `/mcp` — answers only this machine. That is enforced on the
+  peer address of the accepted TCP connection, not on a header, so a caller cannot claim
+  to be local: replying to a forged source address means completing a handshake the
+  sender never sees. Asserted by a test that binds a real network address, because a
+  loopback test server cannot exercise the guard at all.
+- **Your provider keys never leave this machine.** What crosses your network is a Ferrule
+  token, which you can revoke without touching anything else.
+
+App tokens cross your LAN in the clear. On your own wifi that is the same trust boundary
+every other device on it already sits behind — but a token spends money, so give people
+their own rather than sharing one.
+
+The control plane also refuses cross-origin requests unless you turn on the developer
+setting, and even then only for the routes that carry the per-run control token.
 
 ## The agent face
 

@@ -1,6 +1,11 @@
 # FERRULE
 ### A local key vault and model router — vision, roadmap, and agent handoff in one file
 
+> **This is the founding document, not the changelog.** It is kept as written so the
+> reasoning is legible, which means it describes intentions that were later changed or
+> dropped — §4.7's browser publication path, for one. What actually shipped is in
+> `SPEC.md`, and what you can do with it is in `README.md`. Where they disagree, they win.
+
 **Tier: Tool.** Single user, local, one self-contained binary. This document *is* the
 handoff — there is no separate UX/UI reference; surfaces are drawn inline in §4.6.
 Re-tier to Product only when a second human role, shared state, or a server appears
