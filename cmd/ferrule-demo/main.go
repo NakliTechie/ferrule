@@ -57,11 +57,11 @@ func run(dir string, port, traffic int, clean bool) error {
 	defer local.Close()
 
 	cloud := map[string]*mock.Provider{
-		"anthropic": offMachine("sk-ant-demo", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"),
-		"deepseek":  offMachine("sk-demo", "deepseek-chat", "deepseek-reasoner"),
-		"groq":      offMachine("gsk_demo", "llama-3.3-70b-versatile", "llama-4-scout-17b", "mixtral-8x7b-32768"),
+		"anthropic": offMachine("sk-ant-demo-not-a-real-key", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"),
+		"deepseek":  offMachine("sk-demo-not-a-real-key", "deepseek-chat", "deepseek-reasoner"),
+		"groq":      offMachine("gsk_demo-not-a-real-key", "llama-3.3-70b-versatile", "llama-4-scout-17b", "mixtral-8x7b-32768"),
 	}
-	keys := map[string]string{"anthropic": "sk-ant-demo", "deepseek": "sk-demo", "groq": "gsk_demo"}
+	keys := map[string]string{"anthropic": "sk-ant-demo-not-a-real-key", "deepseek": "sk-demo-not-a-real-key", "groq": "gsk_demo-not-a-real-key"}
 	for _, p := range cloud {
 		if p != nil {
 			defer p.Close()
@@ -102,7 +102,7 @@ func run(dir string, port, traffic int, clean bool) error {
 	// with -clean, which is what a hero screenshot wants.
 	if !clean {
 		if _, err := a.Discovery.Add(ctx, discovery.AddRequest{
-			Name: "groq-typo", Provider: "groq", BaseURL: "http://127.0.0.1:1/v1", Key: "gsk_wrong",
+			Name: "groq-typo", Provider: "groq", BaseURL: "http://127.0.0.1:1/v1", Key: "gsk_wrong-not-a-real-key",
 		}); err != nil {
 			return err
 		}

@@ -43,6 +43,7 @@ jobs:
           files: |
             dist/ferrule-*
             dist/Ferrule-macos.zip
+            dist/install.sh
             dist/SHA256SUMS
           generate_release_notes: true
           body: |

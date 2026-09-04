@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run demo sync-llms app bundle app-dist
+.PHONY: build check test vet fmt dist clean run demo demo-smoke sync-llms app bundle app-dist
 
 build: sync-llms
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
@@ -18,7 +18,7 @@ sync-llms:
 # NOT `sync-llms` first. Synchronising the embedded copy before running the test that
 # checks for drift makes that test incapable of failing here — a gate that repairs the
 # thing it is about to inspect is not a gate. `make sync-llms` is the explicit fix.
-check: fmt vet test
+check: fmt vet test demo-smoke
 
 fmt:
 	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "gofmt found unformatted files"; exit 1)
@@ -89,6 +89,25 @@ bundle:
 
 app: build bundle
 	@echo "dist/Ferrule.app — drag it to Applications, or double-click it where it is."
+
+# `make demo` is the on-ramp the README offers to anyone who does not want to paste a key
+# on first contact, and nothing was compiling it into a run. A vault change that refused
+# short secrets broke every one of its fake keys, and it shipped in a release that way.
+demo-smoke: build
+	@set -e; port=8879; \
+	  go run ./cmd/ferrule-demo -port $$port -clean > /tmp/ferrule-demo-smoke.log 2>&1 & \
+	  pid=$$!; \
+	  for i in $$(seq 1 60); do \
+	    curl -sf -o /dev/null http://127.0.0.1:$$port/ && break || sleep 1; \
+	  done; \
+	  code=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$$port/ || true); \
+	  kill $$pid 2>/dev/null || true; wait $$pid 2>/dev/null || true; \
+	  pkill -f 'ferrule-demo -port '$$port 2>/dev/null || true; \
+	  if [ "$$code" != "200" ]; then \
+	    echo "make demo does not come up (HTTP $$code):"; \
+	    tail -5 /tmp/ferrule-demo-smoke.log; exit 1; \
+	  fi; \
+	  echo "demo: ok"
 
 clean:
 	rm -rf dist $(BINARY)
