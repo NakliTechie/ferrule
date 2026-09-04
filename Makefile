@@ -55,31 +55,24 @@ dist: sync-llms
 # is actually for. No new dependency: the icon is committed as .icns, the launcher is
 # three lines of shell, and the binary inside is the same one `make build` produces. The
 # bundle is self-contained, so it can be dragged to Applications or anywhere else.
-# Ferrule.app, one per Mac architecture.
+# Ferrule.app, Apple Silicon only.
 #
-# Not a universal binary: macOS 26 tells the person an app containing Intel code
-# "includes a component that will not work with a future release of macOS", which is a
-# frightening thing to read while installing a key vault. Two native apps produce no
-# warning on either machine, and About This Mac already tells people which they have.
+# Not universal: macOS 26 tells the person an app containing Intel code "includes a
+# component that will not work with a future release of macOS", which is a frightening
+# thing to read while installing a key vault. Intel Macs are served by the raw
+# ferrule-darwin-amd64 binary, which is a smaller audience and a more technical one.
 #
 # The app's main executable IS the binary. A launcher script there left macOS unable to
 # see any architecture at all.
-APP_ARCHS := arm64 amd64
-APP_LABEL_arm64 := apple-silicon
-APP_LABEL_amd64 := intel
-
 app-dist:
 	@mkdir -p dist
-	@for arch in $(APP_ARCHS); do \
-	  label=$$( [ $$arch = arm64 ] && echo apple-silicon || echo intel ); \
-	  CGO_ENABLED=0 GOOS=darwin GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" \
-	    -o dist/.ferrule-$$arch ./cmd/ferrule || exit 1; \
-	  $(MAKE) --no-print-directory bundle BINARY_FOR_APP=dist/.ferrule-$$arch || exit 1; \
-	  rm -f dist/.ferrule-$$arch; \
-	  (cd dist && zip -qry Ferrule-macos-$$label.zip Ferrule.app -x '*.DS_Store') || exit 1; \
-	  echo "  dist/Ferrule-macos-$$label.zip"; \
-	done
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" \
+	  -o dist/.ferrule-arm64 ./cmd/ferrule
+	@$(MAKE) --no-print-directory bundle BINARY_FOR_APP=dist/.ferrule-arm64
+	@rm -f dist/.ferrule-arm64
+	@cd dist && zip -qry Ferrule-macos.zip Ferrule.app -x '*.DS_Store'
 	@rm -rf dist/Ferrule.app
+	@echo "  dist/Ferrule-macos.zip"
 
 # bundle assembles Ferrule.app around BINARY_FOR_APP (default: the host build).
 bundle:

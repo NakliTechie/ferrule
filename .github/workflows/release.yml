@@ -30,23 +30,25 @@ jobs:
       # most likely to download is the one most likely to be covered.
       - name: checksum everything that ships
         run: |
+          # The installer is downloaded from the tag, so it ships with it and is covered
+          # by the same checksums as the binaries it fetches.
+          cp install.sh dist/
           cd dist
           rm -f SHA256SUMS
-          shasum -a 256 ferrule-* Ferrule-macos-*.zip > SHA256SUMS
+          shasum -a 256 ferrule-* Ferrule-macos.zip install.sh > SHA256SUMS
           cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/ferrule-*
-            dist/Ferrule-macos-*.zip
+            dist/Ferrule-macos.zip
             dist/SHA256SUMS
           generate_release_notes: true
           body: |
-            **macOS** — `Ferrule-macos-apple-silicon.zip`, or `-intel.zip` for a Mac
-            with an Intel processor (Apple menu → About This Mac). Unzip, drag
-            `Ferrule.app` to Applications, double-click. Not notarised, so the first
-            open needs right-click → Open.
+            **macOS (Apple Silicon)** — `Ferrule-macos.zip`. Unzip, drag `Ferrule.app`
+            to Applications, double-click. Not notarised, so the first open needs
+            right-click → Open. On an Intel Mac use `ferrule-darwin-amd64`.
 
             **Linux / Windows** — download the binary for your machine, make it
             executable, run `ferrule serve`, open <http://localhost:8899>.
