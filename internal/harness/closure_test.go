@@ -228,3 +228,67 @@ func TestOrphanedKeysAreSweptOnStartup(t *testing.T) {
 		t.Error("the orphan's ref is still in the encrypted store")
 	}
 }
+
+// Moving to a new machine is what export and import are for, and the household key is the
+// one credential a person hands out. It has to survive the move — and survive the first
+// restart afterwards, which is a different question.
+//
+// It did not. The export carried the grant and the sealed vault, but `shared` was in
+// neither the SELECT nor the INSERT, so the imported grant landed unflagged. The key
+// worked, right up until the next start: the sweep that deletes vault entries nothing
+// points at keeps a token only while a live shared grant claims it, and nothing did.
+func TestTheHouseholdKeySurvivesAMoveToAnotherMachine(t *testing.T) {
+	const pass = "a-passphrase-for-the-move"
+
+	from := newRig(t)
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	from.addLocal(t, "ollama", up)
+	original, token, err := from.app.HouseholdKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !original.Shared {
+		t.Fatal("the household key is not marked shared on the machine that made it")
+	}
+
+	file := filepath.Join(t.TempDir(), "ferrule-config.json")
+	if _, err := from.bus.Dispatch(context.Background(), "export_config",
+		api.Args{"path": file, "passphrase": pass}, api.DoorCLI, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	to, err := app.Open(app.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.NewBus(to).Dispatch(context.Background(), "import_config",
+		api.Args{"path": file, "passphrase": pass}, api.DoorCLI, "test"); err != nil {
+		t.Fatal(err)
+	}
+	moved, movedToken, err := to.HouseholdKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.ID != original.ID || movedToken != token {
+		t.Fatalf("the new machine invented a second household key: %s/%s, want %s",
+			moved.ID, moved.App, original.ID)
+	}
+	to.Close()
+
+	// The restart is the half that was broken. Opening the config again runs the sweep.
+	again, err := app.Open(app.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	after, afterToken, err := again.HouseholdKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterToken != token {
+		t.Errorf("the household key did not survive the first restart after a move: "+
+			"grant %s now, %s before", after.ID, original.ID)
+	}
+}

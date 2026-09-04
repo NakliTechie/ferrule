@@ -340,5 +340,5 @@
   "op.set_share_address": "Choose which of this machine's addresses the household is given.",
   "share.unknownAddress": "Ferrule does not serve %q — choose one of the addresses it is listening on.",
   "ui.home.addressLabel": "Address to hand out",
-  "ui.home.addressHint": "This machine has more than one address. If the one above does not work for them, try another:"
+  "ui.home.addressHint": "This machine has more than one address. A hostname survives a router reboot; a number may not. If the one above does not work for them, try another:"
 }

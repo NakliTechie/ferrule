@@ -42,6 +42,7 @@ func cmdServe(args []string) error {
 	host := fs.String("host", "0.0.0.0", "address to bind; use 127.0.0.1 to close the port to the network entirely")
 	passphrase := fs.Bool("passphrase", false, "prompt for a passphrase to unlock the vault, so nothing that can open it is written to disk")
 	noDetect := fs.Bool("no-detect", false, "skip the startup scan for local runtimes")
+	advertise := fs.String("advertise", "", "the address to hand out instead of a detected one — a hostname survives DHCP, an address does not")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -61,7 +62,9 @@ func cmdServe(args []string) error {
 	}
 	defer a.Close()
 
-	srv, err := server.New(a, server.Options{Addr: fmt.Sprintf("%s:%d", *host, *port)})
+	srv, err := server.New(a, server.Options{
+		Addr: fmt.Sprintf("%s:%d", *host, *port), Advertise: *advertise,
+	})
 	if err != nil {
 		// A login item and a double-clicked app both want to make sure Ferrule is
 		// running, and both are right when it already is. Treating "another Ferrule has

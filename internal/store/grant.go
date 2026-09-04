@@ -148,7 +148,7 @@ type PortableGrant struct {
 
 // ExportGrants returns every grant with its token hash.
 func (d *DB) ExportGrants() ([]PortableGrant, error) {
-	rows, err := d.sql.Query(`SELECT id,app,token_hash,created_at,revoked_at FROM grants ORDER BY created_at`)
+	rows, err := d.sql.Query(`SELECT id,app,token_hash,created_at,revoked_at,shared FROM grants ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -156,9 +156,11 @@ func (d *DB) ExportGrants() ([]PortableGrant, error) {
 	var out []PortableGrant
 	for rows.Next() {
 		var g PortableGrant
-		if err := rows.Scan(&g.ID, &g.App, &g.TokenHash, &g.CreatedAt, &g.RevokedAt); err != nil {
+		var shared int
+		if err := rows.Scan(&g.ID, &g.App, &g.TokenHash, &g.CreatedAt, &g.RevokedAt, &shared); err != nil {
 			return nil, err
 		}
+		g.Shared = shared != 0
 		out = append(out, g)
 	}
 	return out, rows.Err()
@@ -170,10 +172,17 @@ func (d *DB) ImportGrants(gs []PortableGrant) error {
 		if g.ID == "" || g.TokenHash == "" {
 			continue
 		}
+		// `shared` has to survive the round trip, and not because of a flag in a list.
+		// The household token lives in the vault under this grant's id, and the startup
+		// sweep keeps a vault entry only when a live shared grant points at it — so an
+		// import that lost the flag left the imported key in the vault until the next
+		// start, and then deleted it. The configuration looked complete and stopped
+		// working on the first restart.
 		if _, err := d.sql.Exec(`
-INSERT INTO grants (id,app,token_hash,created_at,revoked_at) VALUES (?,?,?,?,?)
-ON CONFLICT(id) DO UPDATE SET app=excluded.app, revoked_at=excluded.revoked_at`,
-			g.ID, g.App, g.TokenHash, g.CreatedAt, g.RevokedAt); err != nil {
+INSERT INTO grants (id,app,token_hash,created_at,revoked_at,shared) VALUES (?,?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET app=excluded.app, revoked_at=excluded.revoked_at,
+  shared=excluded.shared`,
+			g.ID, g.App, g.TokenHash, g.CreatedAt, g.RevokedAt, boolInt(g.Shared)); err != nil {
 			return err
 		}
 	}

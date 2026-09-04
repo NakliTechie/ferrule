@@ -8,6 +8,7 @@ import (
 	"embed"
 	"encoding/json"
 	"html"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -31,6 +32,7 @@ func Mount(mux *http.ServeMux, controlToken string) {
 	files := http.FileServer(http.FS(sub))
 
 	mux.HandleFunc("/llms.txt", serveLLMs)
+	mux.HandleFunc("/robots.txt", serveRobots)
 	mux.HandleFunc("/ui/strings.json", serveStrings)
 	mux.HandleFunc("/ui/providers.json", serveProviders)
 	mux.Handle("/ui/", cache(http.StripPrefix("/ui/", files)))
@@ -76,6 +78,15 @@ var llms []byte
 
 // serveLLMs is the docs' agent face, served by the running daemon so an agent pointed at
 // a live Ferrule gets the surface without being pointed at the repo.
+// serveRobots refuses every crawler. Ferrule is a personal control panel and is normally
+// reachable only from the machine it runs on — but people tunnel things, and a panel that
+// turns up in a search index is a worse surprise than three lines of file.
+func serveRobots(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	_, _ = io.WriteString(w, "User-agent: *\nDisallow: /\n")
+}
+
 func serveLLMs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")

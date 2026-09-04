@@ -32,13 +32,22 @@ type Options struct {
 	// Binding narrowly is still available and still absolute: --host 127.0.0.1 closes
 	// the port to the network entirely, and no setting can reopen it.
 	Addr string
+	// Advertise is the address handed out instead of a detected one — a hostname, most
+	// usefully. A home network hands out addresses by DHCP, so the number in the panel is
+	// true until the router feels otherwise, and then every person in the house has a
+	// config pointing at nothing. A name like `mac-mini.local:8899` does not move.
+	//
+	// It is offered first and the detected addresses stay available beneath it, because a
+	// name that does not resolve on someone's phone is a worse failure than an IP.
+	Advertise string
 }
 
 // Server is the running daemon.
 type Server struct {
-	app  *app.App
-	http *http.Server
-	ln   net.Listener
+	app       *app.App
+	http      *http.Server
+	ln        net.Listener
+	advertise string
 }
 
 // New builds the daemon, binding the listener so the caller learns the real address
@@ -65,7 +74,7 @@ func New(a *app.App, o Options) (*Server, error) {
 
 	mux := http.NewServeMux()
 	control := api.New(a)
-	srv := &Server{app: a, ln: ln}
+	srv := &Server{app: a, ln: ln, advertise: o.Advertise}
 	control.SetLANEndpoints(srv.LANEndpoints())
 	control.SetLANEndpoint(srv.LANEndpoint())
 	router.New(a.DB, a.Vault).Mount(mux)
@@ -102,10 +111,21 @@ func (s *Server) LANEndpoints() []string {
 		return []string{net.JoinHostPort(bound, port)}
 	}
 	out := make([]string, 0, 4)
+	if s.advertise != "" {
+		out = append(out, withPort(s.advertise, port))
+	}
 	for _, host := range hostAddrs() {
 		out = append(out, net.JoinHostPort(host, port))
 	}
 	return out
+}
+
+// withPort leaves an advertised address alone if it already names one.
+func withPort(addr, port string) string {
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr
+	}
+	return net.JoinHostPort(addr, port)
 }
 
 // hostAddrs lists this machine's IPv4 addresses, in the order most likely to be the one

@@ -151,7 +151,15 @@ func run(dir string, port, traffic int, clean bool) error {
 		return err
 	}
 
-	srv, err := server.New(a, server.Options{Addr: fmt.Sprintf("127.0.0.1:%d", port)})
+	// Bound the way the product binds, so what the demo shows is what an install
+	// looks like — including the address and household key a person hands out. A
+	// loopback-only demo shows the one state a real install is almost never in.
+	srv, err := server.New(a, server.Options{
+		Addr: fmt.Sprintf("0.0.0.0:%d", port),
+		// A documentation address (RFC 5737), so a screenshot of the demo does not
+		// publish whoever took it.
+		Advertise: fmt.Sprintf("192.0.2.42:%d", port),
+	})
 	if err != nil {
 		return err
 	}
