@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -38,7 +39,37 @@ const (
 type DB struct{ sql *sql.DB }
 
 // Open opens (creating if needed) the database at path and applies the schema.
+// precreate makes the database file at 0600, and repairs the mode of one made before
+// this existed. A tightening applied only to new installs leaves every early user with
+// the loose permissions and no way to know.
+func precreate(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		return f.Close()
+	}
+	if !os.IsExist(err) {
+		return err
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if fi, err := os.Stat(p); err == nil && fi.Mode().Perm() != 0o600 {
+			if err := os.Chmod(p, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func Open(path string) (*DB, error) {
+	// The file is created at 0600 before SQLite ever sees it, and SQLite gives the
+	// journal and WAL the same mode as the database. Left to the default it lands 0644,
+	// world-readable — the config directory is 0700 so nothing could reach it today, but
+	// a backup, a cloud sync, or an extracted archive flattens directory permissions and
+	// leaves the file's own mode as the only thing standing. This file holds the ledger,
+	// the grant hashes, and prompts and responses when content logging is on.
+	if err := precreate(path); err != nil {
+		return nil, err
+	}
 	h, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err

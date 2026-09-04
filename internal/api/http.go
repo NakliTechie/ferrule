@@ -37,6 +37,10 @@ func (s *API) Token() *Token { return s.token }
 // Ferrule is not on the network.
 func (s *API) SetLANEndpoint(ep string) { s.bus.lanEndpoint = ep }
 
+// SetLANEndpoints records every address this machine serves, so the panel can offer the
+// choice instead of presenting one guess as a fact.
+func (s *API) SetLANEndpoints(eps []string) { s.bus.lanEndpoints = eps }
+
 // Bus exposes the command bus (the CLI and the tests dispatch through it directly).
 func (s *API) Bus() *Bus { return s.bus }
 

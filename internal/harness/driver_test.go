@@ -531,3 +531,48 @@ func waitPort(t *testing.T, port int) {
 	}
 	t.Fatalf("nothing came up on port %d", port)
 }
+
+// Nothing Ferrule writes should be readable by another account on the machine. The
+// config directory is 0700, which is what protects these files today — but a backup, a
+// cloud sync, or an extracted archive flattens directory permissions and leaves each
+// file's own mode as the only thing left. The database was landing 0644: it holds the
+// ledger, the grant hashes, and prompts and responses when content logging is on.
+func TestNothingFerruleWritesIsReadableByAnotherAccount(t *testing.T) {
+	dir := t.TempDir()
+	bin := buildFerrule(t)
+	// A real start, so every file the daemon makes on its own is included — the WAL and
+	// the shared-memory file are created by SQLite, not by Ferrule, and were the half a
+	// unit test would have missed.
+	cmd := exec.Command(bin, "serve", "-port", fmt.Sprint(freePort(t)), "-no-detect")
+	cmd.Env = append(os.Environ(), "FERRULE_CONFIG_DIR="+dir)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	time.Sleep(1500 * time.Millisecond)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 3 {
+		t.Fatalf("only %d files after a start; the daemon did not get far enough for this "+
+			"test to mean anything", len(entries))
+	}
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.IsDir() {
+			continue
+		}
+		if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+			t.Errorf("%s is %04o — readable or writable by another account on this machine",
+				e.Name(), perm)
+		}
+	}
+	if fi, err := os.Stat(dir); err == nil && fi.Mode().Perm()&0o077 != 0 {
+		t.Errorf("the config directory is %04o, want 0700", fi.Mode().Perm())
+	}
+}

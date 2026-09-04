@@ -30,6 +30,12 @@ func cmdOpen(args []string) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 
 	if !listening(addr) {
+		// Resolved here so a failure can name the actual file rather than a path that is
+		// only correct on one operating system.
+		logPath, err := logFile()
+		if err != nil {
+			return err
+		}
 		if err := spawnDaemon(*port); err != nil {
 			return err
 		}
@@ -37,7 +43,7 @@ func cmdOpen(args []string) error {
 		// is fast, but not instant, and opening a browser at a port nothing is on yet
 		// shows the person a connection error for something that is about to work.
 		if !waitFor(addr, 15*time.Second) {
-			return fmt.Errorf("%s", i18n.T("open.noDaemon", addr))
+			return fmt.Errorf("%s", i18n.T("open.noDaemon", addr, logPath))
 		}
 		fmt.Println(i18n.T("open.started", addr))
 	}

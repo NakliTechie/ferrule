@@ -940,6 +940,7 @@ function shareCard() {
     on ? el("div", { class: "share-url" },
       el("code", { class: "mono", text: url }),
       copyButton(url)) : null,
+    on ? addressPicker() : null,
     on ? householdKeyRow() : null,
     startupRow(),
   );
@@ -1000,6 +1001,24 @@ function regenerateHouseholdKey() {
       el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.home.newKey"),
         onclick: async () => { closeModal(); await run(() => op("regenerate_household_key"), T("ui.home.newKey")); } }),
       el("button", { class: "act", type: "button", text: T("ui.action.cancel"), onclick: closeModal })));
+}
+
+// addressPicker appears only when this machine has more than one address, which is more
+// often than it looks: a VPN, a container bridge, a second network. Ferrule leads with its
+// best guess — a tunnel sorts last, because the house is not on the other end of one —
+// but a guess is not a fact, and an address that is listening and unreachable looks
+// exactly like an address that works.
+function addressPicker() {
+  const eps = (state.status && state.status.lan_endpoints) || [];
+  if (eps.length < 2) return null;
+  const cur = (state.status && state.status.lan_endpoint) || eps[0];
+  const sel = el("select", {
+    "aria-label": T("ui.home.addressLabel"),
+    onchange: (e) => run(() => op("set_share_address", { address: e.target.value }),
+      T("ui.home.addressLabel")),
+  }, ...eps.map((ep) => el("option", { value: ep, text: ep, selected: ep === cur })));
+  return el("div", { class: "share-pick" },
+    el("span", { class: "note", text: T("ui.home.addressHint") }), sel);
 }
 
 function copyButton(text) {

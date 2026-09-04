@@ -34,6 +34,10 @@ const (
 	// on can use is not one. The control surface is never covered by this — it answers
 	// only to this machine whatever the setting says.
 	SetSharing = "sharing" // "on" | "off" (default on)
+	// SetShareAddress is which of this machine's addresses the panel and the CLI hand
+	// out. Unset means "whichever Ferrule would pick"; a stored value that stops being
+	// served is cleared rather than shown.
+	SetShareAddress = "share_address"
 )
 
 // StagedOp is a mutating control-plane op waiting for a person to apply it (§4.7).

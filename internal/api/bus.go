@@ -98,6 +98,8 @@ type Bus struct {
 	ops map[string]*Op
 	// lanEndpoint is the address other machines reach this daemon at, or empty.
 	lanEndpoint string
+	// lanEndpoints is every address they could reach it at, best guess first.
+	lanEndpoints []string
 }
 
 // NewBus registers every control op against a core.

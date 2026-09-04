@@ -10,11 +10,23 @@ import (
 // DefaultPort is the daemon's listening port. Overridable by flag and FERRULE_PORT.
 const DefaultPort = 8899
 
-// Dir returns the configuration directory, creating it at 0700 if absent.
+// Dir returns the configuration directory, creating it at 0700 if absent and tightening
+// it if it is not.
+//
+// MkdirAll does nothing to a directory that already exists, so the 0700 applied only to
+// fresh installs. A directory the person made themselves, or restored from a backup, or
+// unpacked from an archive, kept whatever mode it arrived with — and this is the
+// directory holding the vault. Tightening is only ever a narrowing, so doing it on every
+// start is safe and is the only way an existing install gets fixed.
 func Dir() (string, error) {
 	dir := resolve()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
+	}
+	if fi, err := os.Stat(dir); err == nil && fi.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
+		}
 	}
 	return dir, nil
 }

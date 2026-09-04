@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -66,6 +66,7 @@ func New(a *app.App, o Options) (*Server, error) {
 	mux := http.NewServeMux()
 	control := api.New(a)
 	srv := &Server{app: a, ln: ln}
+	control.SetLANEndpoints(srv.LANEndpoints())
 	control.SetLANEndpoint(srv.LANEndpoint())
 	router.New(a.DB, a.Vault).Mount(mux)
 	passthrough.New(a.DB, a.Vault).Mount(mux)
@@ -79,50 +80,95 @@ func New(a *app.App, o Options) (*Server, error) {
 	return srv, nil
 }
 
-// LANEndpoint is the address other machines should point at, or "" when Ferrule is not
-// reachable from the network. The panel quotes it when handing over a new app token, so a
-// token minted for someone else arrives with a URL that works from their machine.
-func (s *Server) LANEndpoint() string {
+// LANEndpoints is every address other machines can reach this daemon at, best guess
+// first. Empty when Ferrule is not reachable from the network at all.
+//
+// A machine has more than one address more often than it looks. A VPN, a container
+// bridge, a second wifi — each adds one, and the routing table's answer is whichever
+// holds the default route, which for a VPN is the VPN. On this machine that meant the
+// panel recommending 192.168.50.3 to a family sitting on 192.168.1.x: an address bound
+// and listening and useless to them. So the person is shown the list and picks, rather
+// than being handed one guess as though it were a fact.
+func (s *Server) LANEndpoints() []string {
 	if !s.reachable() {
-		return ""
+		return nil
 	}
 	bound, port, err := net.SplitHostPort(s.ln.Addr().String())
 	if err != nil {
-		return ""
+		return nil
 	}
-	// A listener bound to one specific address is only reachable at that address. Asking
-	// the routing table there can name a different interface entirely — this machine has
-	// two, and the panel would hand a family member a URL that nothing is listening on.
-	// The routing table is the right answer only for the wide bind, where every interface
-	// works and the question is which one to recommend.
+	// A listener bound to one specific address is only reachable at that address.
 	if ip := net.ParseIP(strings.Trim(bound, "[]")); ip != nil && !ip.IsUnspecified() {
-		return net.JoinHostPort(bound, port)
+		return []string{net.JoinHostPort(bound, port)}
 	}
-	host := outboundIP()
-	if host == "" {
-		if h, err := os.Hostname(); err == nil {
-			host = h
-		} else {
-			return ""
-		}
+	out := make([]string, 0, 4)
+	for _, host := range hostAddrs() {
+		out = append(out, net.JoinHostPort(host, port))
 	}
-	return net.JoinHostPort(host, port)
+	return out
 }
 
-// outboundIP finds the address other machines on this network would reach. It opens a UDP
-// socket, which chooses a route without sending anything, rather than guessing from the
-// interface list.
-func outboundIP() string {
-	c, err := net.Dial("udp", "192.0.2.1:9") // TEST-NET-1: routed nowhere, contacted never
+// hostAddrs lists this machine's IPv4 addresses, in the order most likely to be the one
+// the family can reach.
+//
+// A point-to-point interface is a tunnel — a VPN, a WireGuard link — and the house is not
+// on the other end of it, so those sort last however the routing table feels about them.
+// IPv6 is left out: a household pointing an app at a link-local address is not a thing
+// that works, and a global v6 address on a home network is rarely the shortest path
+// between two machines on the same wifi.
+func hostAddrs() []string {
+	ifaces, err := net.Interfaces()
 	if err != nil {
+		return nil
+	}
+	var direct, tunnel []string
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			n, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := n.IP.To4()
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			if ifc.Flags&net.FlagPointToPoint != 0 {
+				tunnel = append(tunnel, ip.String())
+			} else {
+				direct = append(direct, ip.String())
+			}
+		}
+	}
+	sort.Strings(direct)
+	sort.Strings(tunnel)
+	return append(direct, tunnel...)
+}
+
+// LANEndpoint is the one address the panel and the CLI lead with: the person's choice if
+// they made one and it is still served, otherwise the best guess.
+func (s *Server) LANEndpoint() string {
+	eps := s.LANEndpoints()
+	if len(eps) == 0 {
 		return ""
 	}
-	defer c.Close()
-	host, _, err := net.SplitHostPort(c.LocalAddr().String())
-	if err != nil {
-		return ""
+	if pick := s.app.DB.Setting(store.SetShareAddress, ""); pick != "" {
+		for _, ep := range eps {
+			if ep == pick {
+				return ep
+			}
+		}
+		// The chosen address is gone — a VPN dropped, a cable moved. Falling back to a
+		// working one beats showing an address nothing answers on.
+		_ = s.app.DB.SetSetting(store.SetShareAddress, "")
 	}
-	return host
+	return eps[0]
 }
 
 // Addr is the address actually bound.

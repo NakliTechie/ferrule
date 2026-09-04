@@ -51,6 +51,7 @@ func (b *Bus) register() {
 				"catalog_source":     catalog.RemoteURL,
 				"catalog_disclosure": i18n.T("catalog.disclosure", catalog.RemoteURL),
 				"lan_endpoint":       bus.lanEndpoint,
+				"lan_endpoints":      bus.lanEndpoints,
 				// Two different facts, and conflating them is how a toggle lies: whether
 				// other machines *could* reach this listener at all, and whether they are
 				// currently being served. Only the second is a setting.
@@ -437,6 +438,32 @@ func (b *Bus) register() {
 				return nil, err
 			}
 			return map[string]any{"startup": st}, nil
+		}})
+
+	b.add(&Op{Name: "set_share_address", Desc: i18n.T("op.set_share_address"), Mutating: true,
+		Params: []Param{{Name: "address", Type: "string", Required: true,
+			Desc: "one of status.lan_endpoints, or empty to let Ferrule pick"}},
+		run: func(_ context.Context, a *app.App, args Args) (any, error) {
+			want := args.Str("address")
+			// Only an address this daemon actually serves. Storing an arbitrary string
+			// here would put an unreachable URL in front of every person being handed a
+			// key, which is the exact failure this whole choice exists to prevent.
+			if want != "" {
+				ok := false
+				for _, ep := range bus.lanEndpoints {
+					if ep == want {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					return nil, fmt.Errorf("%s", i18n.T("share.unknownAddress", want))
+				}
+			}
+			if err := a.DB.SetSetting(store.SetShareAddress, want); err != nil {
+				return nil, err
+			}
+			return map[string]any{"address": want}, nil
 		}})
 
 	b.add(&Op{Name: "read_content", Desc: i18n.T("op.read_content"), PersonOnly: true,
