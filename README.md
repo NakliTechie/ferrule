@@ -110,7 +110,9 @@ terminal, and `ferrule startup` says where things stand.
 | Windows | a Task Scheduler logon task named `Ferrule` |
 
 All three restart Ferrule if it crashes and leave it alone if it exits cleanly, so
-stopping it from a terminal actually stops it.
+stopping it from a terminal actually stops it. macOS and Linux are verified end to
+end — register, report, run, unregister. Windows is not: it compiles and its task
+arguments are tested, but nobody has run it on Windows yet.
 
 Two things the switch will tell you rather than let you find out later. A vault that needs
 a passphrase cannot be opened without you, so it cannot start on its own. And on Linux a

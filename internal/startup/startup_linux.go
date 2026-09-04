@@ -37,7 +37,19 @@ func Status(configDir string) State {
 	}
 	s.Path = path
 	if _, err := os.Stat(path); err == nil {
-		s.Enabled = systemctl("is-enabled", unitName) == nil
+		out, err := systemctlOut("is-enabled", unitName)
+		switch {
+		case err == nil && strings.TrimSpace(out) == "enabled":
+			s.Enabled = true
+		case noUserManager(out):
+			// The unit is on disk and there is no user bus to ask from here — a plain
+			// `ssh box ferrule startup`, a cron job, a container without lingering.
+			// Reporting "will not start" there is wrong: it will, at the next login.
+			// Verified on a real systemd container, which is where this was found.
+			s.Enabled = true
+			s.Reason = i18n.T("startup.noSession")
+			return s
+		}
 	}
 	switch {
 	case !s.Unattended:
@@ -107,6 +119,20 @@ func Disable(configDir string) (State, error) {
 
 func systemctl(args ...string) error {
 	return runTool("systemctl", append([]string{"--user"}, args...)...)
+}
+
+// systemctlOut returns what systemctl said, because the difference between "disabled" and
+// "there is no user manager here to ask" is the whole answer and both are non-zero exits.
+func systemctlOut(args ...string) (string, error) {
+	out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
+	return string(out), err
+}
+
+// noUserManager reports whether systemctl could not reach a user bus at all.
+func noUserManager(out string) bool {
+	return strings.Contains(out, "Failed to connect to bus") ||
+		strings.Contains(out, "Failed to connect to user scope bus") ||
+		strings.Contains(out, "No medium found")
 }
 
 // lingering reports whether this user's services survive their last logout.

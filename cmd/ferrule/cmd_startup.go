@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
 
 	"ferrule/internal/api"
 	"ferrule/internal/i18n"
@@ -57,10 +56,10 @@ func cmdStartup(args []string) error {
 	} else {
 		fmt.Println(i18n.T("startup.off"))
 	}
-	// A reason is why the answer is what it is, and it is the actionable half whether the
-	// switch is on or off.
+	// The reason is context, not an error, and it belongs after the line it explains.
+	// On stderr it raced the line above and printed first.
 	if st.Reason != "" {
-		fmt.Fprintln(os.Stderr, "  "+st.Reason)
+		fmt.Println("  " + st.Reason)
 	}
 	return nil
 }
