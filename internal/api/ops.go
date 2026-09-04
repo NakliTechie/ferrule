@@ -16,6 +16,7 @@ import (
 	"ferrule/internal/discovery"
 	"ferrule/internal/i18n"
 	"ferrule/internal/provider"
+	"ferrule/internal/startup"
 	"ferrule/internal/store"
 )
 
@@ -54,6 +55,7 @@ func (b *Bus) register() {
 				// other machines *could* reach this listener at all, and whether they are
 				// currently being served. Only the second is a setting.
 				"sharing":     a.DB.Setting(store.SetSharing, "on"),
+				"startup":     startup.Status(a.Dir),
 				"sovereignty": i18n.T("app.sovereignty"),
 			}, nil
 		}})
@@ -413,6 +415,28 @@ func (b *Bus) register() {
 				return nil, err
 			}
 			return map[string]any{"grant": g, "token": tok}, nil
+		}})
+
+	// Person-only: it writes a file into the login manager and runs launchctl. An agent
+	// arranging for a daemon to start on every login is arranging for something the
+	// person did not watch happen.
+	b.add(&Op{Name: "set_startup", Desc: i18n.T("op.set_startup"), Mutating: true, PersonOnly: true,
+		Params: []Param{{Name: "value", Type: "string", Required: true, Desc: "on | off"}},
+		run: func(_ context.Context, a *app.App, args Args) (any, error) {
+			var st startup.State
+			var err error
+			switch args.Str("value") {
+			case "on":
+				st, err = startup.Enable(a.Dir)
+			case "off":
+				st, err = startup.Disable(a.Dir)
+			default:
+				return nil, fmt.Errorf("set_startup takes on or off")
+			}
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"startup": st}, nil
 		}})
 
 	b.add(&Op{Name: "read_content", Desc: i18n.T("op.read_content"), PersonOnly: true,

@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run demo sync-llms
+.PHONY: build check test vet fmt dist clean run demo sync-llms app
 
 build: sync-llms
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
@@ -50,6 +50,21 @@ dist: sync-llms
 	    -o dist/$(BINARY)-$$os-$$arch$$ext ./cmd/ferrule || exit 1; \
 	done
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+
+# Ferrule.app — a double-clickable wrapper around `ferrule open`, for the household this
+# is actually for. No new dependency: the icon is committed as .icns, the launcher is
+# three lines of shell, and the binary inside is the same one `make build` produces. The
+# bundle is self-contained, so it can be dragged to Applications or anywhere else.
+app: build
+	@rm -rf dist/Ferrule.app
+	@mkdir -p dist/Ferrule.app/Contents/MacOS dist/Ferrule.app/Contents/Resources
+	@sed 's/__VERSION__/$(VERSION)/g' packaging/Info.plist > dist/Ferrule.app/Contents/Info.plist
+	@cp packaging/Ferrule.icns dist/Ferrule.app/Contents/Resources/Ferrule.icns
+	@cp packaging/launcher.sh dist/Ferrule.app/Contents/MacOS/Ferrule
+	@cp $(BINARY) dist/Ferrule.app/Contents/Resources/ferrule
+	@chmod +x dist/Ferrule.app/Contents/MacOS/Ferrule dist/Ferrule.app/Contents/Resources/ferrule
+	@printf 'APPL????' > dist/Ferrule.app/Contents/PkgInfo
+	@echo "dist/Ferrule.app — drag it to Applications, or double-click it where it is."
 
 clean:
 	rm -rf dist $(BINARY)

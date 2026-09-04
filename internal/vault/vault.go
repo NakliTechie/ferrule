@@ -113,6 +113,22 @@ func Open(dir, passphrase string) (Vault, error) {
 	return v, nil
 }
 
+// Unattended reports whether a daemon can open this vault with nobody at the keyboard.
+//
+// Identity mode can: the key sits at 0600 beside the store. Passphrase mode deliberately
+// cannot — that is the whole point of it — so registering Ferrule to start at login under
+// a passphrase vault would produce a login item that fails every morning and a person who
+// finds out when the house cannot reach the endpoint.
+//
+// A directory with no vault yet is unattended: the first start will make an identity.
+func Unattended(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "vault.identity")); err == nil {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(dir, "vault.age"))
+	return os.IsNotExist(err)
+}
+
 func loadOrCreateIdentity(path string) (*age.X25519Identity, error) {
 	raw, err := os.ReadFile(path)
 	if err == nil {

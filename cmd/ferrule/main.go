@@ -38,6 +38,10 @@ func main() {
 		err = cmdAdd(rest)
 	case "ls", "list":
 		err = cmdLs(rest)
+	case "open":
+		err = cmdOpen(rest)
+	case "startup":
+		err = cmdStartup(rest)
 	case "refresh":
 		err = cmdRefresh(rest)
 	case "rm", "remove":

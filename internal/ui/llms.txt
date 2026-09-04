@@ -92,8 +92,13 @@ published in `brief.reason_codes`.
 ## CLI
 
 `ferrule status [--json]` · `serve` · `add [provider] [--test-model ID]` ·
-`ls sources|models|aliases` · `refresh <source>` · `rm <source>` · `alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
+`open` · `startup [on|off]` · `ls sources|models|aliases` · `refresh <source>` ·
+`rm <source>` · `alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
 `version`
+
+`ferrule serve` on a port another Ferrule already holds exits **0** — a login item and a
+double-clicked app both ask for the same thing and it is already true. A port held by
+anything else is still an error.
 
 Exit codes map one-to-one to next actions: **0** worked · **1** did not, and the reason
 says why · **2** the invocation was wrong.

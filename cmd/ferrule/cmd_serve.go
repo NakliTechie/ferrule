@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -17,6 +21,20 @@ import (
 	"ferrule/internal/server"
 	"ferrule/internal/store"
 )
+
+// ferruleOn reports whether the thing holding a port is a Ferrule daemon. It asks the
+// unauthenticated inference endpoint, which answers every caller with Ferrule's own error
+// shape and needs no control token to recognise.
+func ferruleOn(port int) bool {
+	c := &http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/v1/models", port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return bytes.Contains(body, []byte("ferrule_error"))
+}
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -45,6 +63,17 @@ func cmdServe(args []string) error {
 
 	srv, err := server.New(a, server.Options{Addr: fmt.Sprintf("%s:%d", *host, *port)})
 	if err != nil {
+		// A login item and a double-clicked app both want to make sure Ferrule is
+		// running, and both are right when it already is. Treating "another Ferrule has
+		// this port" as a failure made launchd restart the job forever against a port
+		// that was never going to free up — a crash loop on a family's machine, visible
+		// only as a log file growing overnight.
+		//
+		// Another program on the port is a different thing entirely and stays an error.
+		if errors.Is(err, syscall.EADDRINUSE) && ferruleOn(*port) {
+			fmt.Println(i18n.T("serve.alreadyRunning", *port))
+			return nil
+		}
 		return err
 	}
 	// The household key exists from the first start, because the first thing a person

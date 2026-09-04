@@ -3,7 +3,7 @@
   "app.tagline": "One local panel: every key held once, every model — local or cloud — visible, switchable, and accountable for what leaves your machine.",
   "app.sovereignty": "Your keys are persisted locally and encrypted. That is not the same as persisted on someone's server. Ferrule has no account, sends no telemetry, and never transmits a key anywhere but the provider you gave it for. The one request Ferrule makes on its own behalf is a background fetch of the public model-capability catalog; it carries nothing about you, and you can turn it off.",
   "cli.usage": "ferrule — a local key vault and model router",
-  "cli.usage.verbs": "Verbs:\n  status   the whole situation in one read (--json for an agent)\n  serve    start the daemon (endpoints + control surface)\n  add      add a source (paste a key, or adopt a detected runtime)\n  ls       list sources / models / aliases\n  refresh  re-check a stored source, using the key it already holds\n  rm       remove a source, its models, and its key\n  alias    create, edit, or remove an alias\n  remap    serve a hardcoded model id from a model of your choosing\n  key      mint or revoke an app token\n  usage    per-app and per-model spend, volume, and egress\n  export   write a portable encrypted configuration file\n  import   read a portable encrypted configuration file\n  version  print the version\n\nExit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the\ncommand was wrong.",
+  "cli.usage.verbs": "Verbs:\n  status   the whole situation in one read (--json for an agent)\n  serve    start the daemon (endpoints + control surface)\n  open     make sure it is running, then show the panel\n  startup  start Ferrule when you log in (on | off)\n  add      add a source (paste a key, or adopt a detected runtime)\n  ls       list sources / models / aliases\n  refresh  re-check a stored source, using the key it already holds\n  rm       remove a source, its models, and its key\n  alias    create, edit, or remove an alias\n  remap    serve a hardcoded model id from a model of your choosing\n  key      mint or revoke an app token\n  usage    per-app and per-model spend, volume, and egress\n  export   write a portable encrypted configuration file\n  import   read a portable encrypted configuration file\n  version  print the version\n\nExit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the\ncommand was wrong.",
   "cli.unknownVerb": "unknown verb %q — run `ferrule` with no arguments for usage",
   "cli.needArg": "%s needs an argument",
   "serve.listening": "Ferrule listening on http://%s",
@@ -319,5 +319,17 @@
   "ui.home.showKey": "Show the household key",
   "ui.home.keyHint": "One key everyone can use. Give people their own below only if you want to see who used what.",
   "ui.home.newKey": "Make a new key",
-  "ui.home.newKeyBody": "Every device using the current household key stops working the moment you do this, and you will have to hand out the new one. Keys people have of their own are not affected."
+  "ui.home.newKeyBody": "Every device using the current household key stops working the moment you do this, and you will have to hand out the new one. Keys people have of their own are not affected.",
+  "startup.needsPassphrase": "This vault needs a passphrase, so Ferrule cannot start on its own — a login item would fail every morning. Switch to the default vault, or start Ferrule yourself.",
+  "startup.unsupported": "Ferrule can register itself to start at login on macOS only. Elsewhere, use whatever your system uses for login items and point it at `ferrule serve`.",
+  "startup.launchctlFailed": "launchd would not take the registration",
+  "startup.on": "Ferrule will start when you log in.",
+  "startup.off": "Ferrule will not start on its own.",
+  "serve.alreadyRunning": "Ferrule is already running on port %d. Nothing to do.",
+  "ui.home.startup": "Start when I log in",
+  "ui.home.startupHint": "So the house can reach it without someone starting it first.",
+  "op.set_startup": "Register or unregister the daemon with the login manager. Person-only: it writes into your login items.",
+  "open.started": "Started Ferrule on http://%s",
+  "open.noDaemon": "Ferrule did not come up on %s — see ~/Library/Logs/ferrule.log",
+  "open.manual": "Ferrule is running. Open %s"
 }

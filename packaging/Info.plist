@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Ferrule</string>
+  <key>CFBundleDisplayName</key><string>Ferrule</string>
+  <key>CFBundleIdentifier</key><string>tech.nakli.ferrule</string>
+  <key>CFBundleExecutable</key><string>Ferrule</string>
+  <key>CFBundleIconFile</key><string>Ferrule</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleVersion</key><string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <!-- The launcher starts a daemon and opens a browser, then exits. Without this it
+       would sit in the Dock as a hung app for as long as macOS waits for a window. -->
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Ferrule. Your keys stay on this machine.</string>
+</dict>
+</plist>

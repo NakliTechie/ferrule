@@ -941,7 +941,27 @@ function shareCard() {
       el("code", { class: "mono", text: url }),
       copyButton(url)) : null,
     on ? householdKeyRow() : null,
+    startupRow(),
   );
+}
+
+// startupRow is the other half of "be there when I get here". A switch that cannot work
+// says so instead of sitting in a position it does not hold: an unsupported platform, or
+// a passphrase vault the daemon cannot open without a person, are both reasons this is
+// off and neither is a reason to hide it.
+function startupRow() {
+  const s = (state.status && state.status.startup) || {};
+  if (!s.supported) return null;
+  const can = s.unattended;
+  const row = el("div", { class: "share-startup" },
+    toggle(!!s.enabled, T("ui.home.startup"), (next) =>
+      run(() => op("set_startup", { value: next ? "on" : "off" }), T("ui.home.startup"))),
+    el("span", { class: "note", text: s.reason || T("ui.home.startupHint") }));
+  if (!can) {
+    const box = row.querySelector("input");
+    if (box) box.disabled = true;
+  }
+  return row;
 }
 
 // toggle is a checkbox that reads as a switch. It is a real input so it is reachable by

@@ -61,6 +61,8 @@ ferrule add                       # scan localhost and adopt what is running
 ferrule add anthropic             # paste a key (read from the terminal, not from argv)
 ferrule ls models --local         # every model on this machine
 ferrule refresh anthropic         # re-check a stored source, with the key it already holds
+ferrule open                      # make sure it is running, then show the panel
+ferrule startup on                # start it when you log in
 ferrule rm anthropic              # remove a source, its models, and its key
 ferrule alias fast <src>/qwen3:8b <src>/llama-3.3-70b   # a ladder, tried in order
 ferrule key my-app                # mint an app token, shown once
@@ -83,6 +85,24 @@ c.chat.completions.create(model="gpt-4o", messages=[...]) # remapped to whatever
 
 The `model` field may be an alias, a real model id, `source/model`, or an id you have
 remapped — which is how Ferrule helps an app that will only ever send `gpt-4o`.
+
+## As an app on your Mac
+
+```
+make app
+```
+
+Writes `dist/Ferrule.app` — drag it to Applications. Double-clicking it starts the daemon
+if nothing is listening and opens the panel; if Ferrule is already running it just opens
+the panel. The bundle carries its own copy of the binary, so it works wherever you put it.
+
+The panel has a **Start when I log in** switch (`ferrule startup on` does the same from a
+terminal). It registers a launchd agent that runs `ferrule serve` and restarts it if it
+crashes — but not if it exits cleanly, so stopping Ferrule from a terminal stops it. A
+vault that needs a passphrase cannot start unattended, and the switch says so instead of
+producing a login item that fails every morning.
+
+Logs go to `~/Library/Logs/ferrule.log`.
 
 ## Sharing it with the house
 

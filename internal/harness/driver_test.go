@@ -3,12 +3,16 @@ package harness_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"ferrule/internal/app"
 
@@ -429,4 +433,101 @@ func TestTheCLICanFinishASourcesLifeAndNotOnlyStartIt(t *testing.T) {
 	if !strings.Contains(out, "ls sources") {
 		t.Errorf("the refusal does not say how to find the real names:\n%s", out)
 	}
+}
+
+// A second `ferrule serve` on a port a Ferrule already holds is not a failure — both a
+// login item and a double-clicked app are asking for the same thing, and it is already
+// true. Reporting it as an error made launchd restart the job forever against a port that
+// was never going to free up: a crash loop on a family's machine whose only sign is a log
+// file growing overnight.
+//
+// A port held by something else stays an error, because that is a different situation
+// with a different answer.
+func TestASecondServeIsQuietOnlyWhenTheFirstIsFerrule(t *testing.T) {
+	bin := buildFerrule(t)
+
+	serve := func(dir string, port int) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, "serve", "-port", fmt.Sprint(port), "-no-detect")
+		cmd.Env = append(os.Environ(), "FERRULE_CONFIG_DIR="+dir)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+		return string(out), code
+	}
+
+	t.Run("another Ferrule means there is nothing to do", func(t *testing.T) {
+		dir := t.TempDir()
+		port := freePort(t)
+		first := exec.Command(bin, "serve", "-port", fmt.Sprint(port), "-no-detect")
+		first.Env = append(os.Environ(), "FERRULE_CONFIG_DIR="+dir)
+		if err := first.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = first.Process.Kill(); _, _ = first.Process.Wait() }()
+		waitPort(t, port)
+
+		out, code := serve(dir, port)
+		if code != 0 {
+			t.Errorf("a second serve exited %d, want 0 — launchd will restart this forever\n%s",
+				code, out)
+		}
+		if !strings.Contains(out, "already running") {
+			t.Errorf("the second serve did not say why it stopped:\n%s", out)
+		}
+	})
+
+	t.Run("something else on the port is still an error", func(t *testing.T) {
+		// Bound the way the daemon binds, so the conflict is the real one.
+		ln, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				c.Close() // says nothing, which is the point: it is not Ferrule
+			}
+		}()
+		_, port, _ := net.SplitHostPort(ln.Addr().String())
+		p, _ := strconv.Atoi(port)
+
+		out, code := serve(t.TempDir(), p)
+		if code == 0 {
+			t.Errorf("serve reported success with a foreign program on the port:\n%s", out)
+		}
+	})
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, p, _ := net.SplitHostPort(ln.Addr().String())
+	n, _ := strconv.Atoi(p)
+	return n
+}
+
+func waitPort(t *testing.T, port int) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+		if err == nil {
+			c.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("nothing came up on port %d", port)
 }
