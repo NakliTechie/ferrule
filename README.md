@@ -32,7 +32,7 @@ dependencies, checksums in `SHA256SUMS`:
 
 | | |
 |---|---|
-| **macOS** | `Ferrule-macos.zip` → unzip, drag `Ferrule.app` to Applications, double-click. One app for Apple Silicon and Intel. |
+| **macOS** | `Ferrule-macos-apple-silicon.zip` (or `-intel.zip`) → unzip, drag `Ferrule.app` to Applications, double-click. |
 | **Linux** | `ferrule-linux-arm64` / `-amd64` → `chmod +x`, then `ferrule serve`. |
 | **Windows** | `ferrule-windows-amd64.exe` → run it, then open the panel. |
 

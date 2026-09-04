@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/NakliTechie/ferrule/internal/app"
@@ -16,12 +17,41 @@ import (
 // Version is stamped at build time: go build -ldflags "-X main.Version=v1.0.0".
 var Version = "dev"
 
+// bundleArgs turns a double-click into a verb.
+//
+// Ferrule.app used to have a shell script as its main executable, with the real binary
+// hidden in Resources. macOS reads the main executable to decide what an app is, found no
+// Mach-O there, and told the person their app "includes a component that will not work
+// with a future release of macOS" — a warning about Intel support, on an app that had a
+// native arm64 binary inside it the whole time. An app whose executable is the program is
+// also one less moving part: no bash, no relative path out of MacOS into Resources.
+//
+// LaunchServices historically passed a -psn_… process serial number and nothing else, so
+// that is not an argument either.
+func bundleArgs(args []string) []string {
+	if runtime.GOOS != "darwin" {
+		return args
+	}
+	if len(args) == 1 && strings.HasPrefix(args[0], "-psn_") {
+		args = nil
+	}
+	if len(args) > 0 {
+		return args
+	}
+	self, err := os.Executable()
+	if err != nil || !strings.Contains(self, ".app/Contents/MacOS/") {
+		return args
+	}
+	// Double-clicked: make sure the daemon is up and show the panel.
+	return []string{"open"}
+}
+
 func main() {
 	if err := i18n.LoadError(); err != nil {
 		fmt.Fprintln(os.Stderr, "ferrule: strings:", err)
 		os.Exit(2)
 	}
-	args := os.Args[1:]
+	args := bundleArgs(os.Args[1:])
 	if len(args) == 0 {
 		usage()
 		os.Exit(0)
