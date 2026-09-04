@@ -86,9 +86,17 @@ func (s *Server) LANEndpoint() string {
 	if !s.reachable() {
 		return ""
 	}
-	_, port, err := net.SplitHostPort(s.ln.Addr().String())
+	bound, port, err := net.SplitHostPort(s.ln.Addr().String())
 	if err != nil {
 		return ""
+	}
+	// A listener bound to one specific address is only reachable at that address. Asking
+	// the routing table there can name a different interface entirely — this machine has
+	// two, and the panel would hand a family member a URL that nothing is listening on.
+	// The routing table is the right answer only for the wide bind, where every interface
+	// works and the question is which one to recommend.
+	if ip := net.ParseIP(strings.Trim(bound, "[]")); ip != nil && !ip.IsUnspecified() {
+		return net.JoinHostPort(bound, port)
 	}
 	host := outboundIP()
 	if host == "" {

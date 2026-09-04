@@ -10,6 +10,14 @@
 // pretending is one thing.
 package startup
 
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
 // State is what the login manager currently says about Ferrule.
 type State struct {
 	// Supported reports whether this build knows how to register on this platform. False
@@ -26,4 +34,34 @@ type State struct {
 	Unattended bool `json:"unattended"`
 	// Reason explains a false in a sentence a person can act on.
 	Reason string `json:"reason,omitempty"`
+}
+
+// runTool executes a login-manager command and folds its output into the error, because
+// launchctl, systemctl and schtasks all report the useful part on stdout and a bare
+// "exit status 1" tells the person nothing they can act on.
+func runTool(name string, args ...string) error {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		}
+		return fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+	}
+	return nil
+}
+
+// selfPath is the absolute, symlink-free path to this binary. Every login manager records
+// it verbatim, and a registration pointing at a path that has moved fails silently every
+// morning — the only sign being that the house cannot reach the endpoint.
+func selfPath() (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		return self, nil
+	}
+	return resolved, nil
 }

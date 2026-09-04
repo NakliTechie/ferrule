@@ -92,7 +92,7 @@ published in `brief.reason_codes`.
 ## CLI
 
 `ferrule status [--json]` · `serve` · `add [provider] [--test-model ID]` ·
-`open` · `startup [on|off]` · `ls sources|models|aliases` · `refresh <source>` ·
+`open` · `startup [on|off]` (launchd · systemd user unit · Task Scheduler) · `ls sources|models|aliases` · `refresh <source>` ·
 `rm <source>` · `alias` · `remap` · `key` · `usage [--egress|--content N]` · `export` · `import` ·
 `version`
 

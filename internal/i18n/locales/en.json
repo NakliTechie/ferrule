@@ -321,7 +321,7 @@
   "ui.home.newKey": "Make a new key",
   "ui.home.newKeyBody": "Every device using the current household key stops working the moment you do this, and you will have to hand out the new one. Keys people have of their own are not affected.",
   "startup.needsPassphrase": "This vault needs a passphrase, so Ferrule cannot start on its own — a login item would fail every morning. Switch to the default vault, or start Ferrule yourself.",
-  "startup.unsupported": "Ferrule can register itself to start at login on macOS only. Elsewhere, use whatever your system uses for login items and point it at `ferrule serve`.",
+  "startup.unsupported": "Ferrule can register itself to start at login on macOS, Linux and Windows. On this system, use whatever it uses for login items and point it at `ferrule serve`.",
   "startup.launchctlFailed": "launchd would not take the registration",
   "startup.on": "Ferrule will start when you log in.",
   "startup.off": "Ferrule will not start on its own.",
@@ -331,5 +331,10 @@
   "op.set_startup": "Register or unregister the daemon with the login manager. Person-only: it writes into your login items.",
   "open.started": "Started Ferrule on http://%s",
   "open.noDaemon": "Ferrule did not come up on %s — see ~/Library/Logs/ferrule.log",
-  "open.manual": "Ferrule is running. Open %s"
+  "open.manual": "Ferrule is running. Open %s",
+  "startup.noSystemd": "This machine has no systemctl, so Ferrule cannot register a login service. Use whatever your desktop uses for startup programs and point it at `ferrule serve`.",
+  "startup.systemctlFailed": "systemd would not take the unit",
+  "startup.noSchtasks": "This machine has no schtasks, so Ferrule cannot register a logon task.",
+  "startup.schtasksFailed": "Task Scheduler would not take the task",
+  "startup.needsLinger": "This is registered, but a user service stops when your last session ends — on a machine you log into over ssh, Ferrule dies when you log out. Run `sudo loginctl enable-linger %s` once to keep it up."
 }

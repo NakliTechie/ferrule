@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !linux && !windows
 
 package startup
 
@@ -9,7 +9,7 @@ import (
 	"ferrule/internal/vault"
 )
 
-// Ferrule knows how to register itself at login on macOS and nowhere else yet. Saying so
+// macOS, Linux and Windows are covered. Anywhere else, saying so
 // is the whole implementation: a switch that reports success and does nothing is worse
 // than one that is honestly absent, because the person only finds out on the morning the
 // house cannot reach the endpoint.

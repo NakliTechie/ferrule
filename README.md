@@ -96,13 +96,26 @@ Writes `dist/Ferrule.app` — drag it to Applications. Double-clicking it starts
 if nothing is listening and opens the panel; if Ferrule is already running it just opens
 the panel. The bundle carries its own copy of the binary, so it works wherever you put it.
 
-The panel has a **Start when I log in** switch (`ferrule startup on` does the same from a
-terminal). It registers a launchd agent that runs `ferrule serve` and restarts it if it
-crashes — but not if it exits cleanly, so stopping Ferrule from a terminal stops it. A
-vault that needs a passphrase cannot start unattended, and the switch says so instead of
-producing a login item that fails every morning.
-
 Logs go to `~/Library/Logs/ferrule.log`.
+
+## Starting it at login
+
+The panel has a **Start when I log in** switch; `ferrule startup on` does the same from a
+terminal, and `ferrule startup` says where things stand.
+
+| | what it registers |
+|---|---|
+| macOS | a launchd agent in `~/Library/LaunchAgents` |
+| Linux | a systemd user unit in `~/.config/systemd/user` |
+| Windows | a Task Scheduler logon task named `Ferrule` |
+
+All three restart Ferrule if it crashes and leave it alone if it exits cleanly, so
+stopping it from a terminal actually stops it.
+
+Two things the switch will tell you rather than let you find out later. A vault that needs
+a passphrase cannot be opened without you, so it cannot start on its own. And on Linux a
+user service stops when your last session ends — on a box you reach over ssh, run
+`sudo loginctl enable-linger <you>` once or Ferrule dies when you log out.
 
 ## Sharing it with the house
 

@@ -3,7 +3,6 @@ package startup
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -13,7 +12,7 @@ import (
 
 // label is the launchd job name. It is also the file name, so changing it strands the
 // old registration — which is why it is a constant and not built from anything.
-const label = "tech.nakli.ferrule"
+const label = ServiceName
 
 func plistPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -49,11 +48,8 @@ func Enable(configDir string, args ...string) (State, error) {
 	if !vault.Unattended(configDir) {
 		return Status(configDir), fmt.Errorf("%s", i18n.T("startup.needsPassphrase"))
 	}
-	self, err := os.Executable()
+	self, err := selfPath()
 	if err != nil {
-		return State{}, err
-	}
-	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return State{}, err
 	}
 	path, err := plistPath()
@@ -93,10 +89,10 @@ func Enable(configDir string, args ...string) (State, error) {
 	// Replace any previous registration rather than layering on it: bootstrap over a
 	// loaded job fails, and the failure reads as "it did not work" when the truth is
 	// "it was already working, with the old path".
-	_ = run("bootout", domain()+"/"+label)
-	if err := run("bootstrap", domain(), path); err != nil {
+	_ = launchctl("bootout", domain()+"/"+label)
+	if err := launchctl("bootstrap", domain(), path); err != nil {
 		// Older systems, and some sandboxed contexts, only speak the legacy verbs.
-		if err2 := run("load", "-w", path); err2 != nil {
+		if err2 := launchctl("load", "-w", path); err2 != nil {
 			os.Remove(path)
 			return State{}, fmt.Errorf("%s: %w", i18n.T("startup.launchctlFailed"), err)
 		}
@@ -111,8 +107,8 @@ func Disable(configDir string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	_ = run("bootout", domain()+"/"+label)
-	_ = run("unload", "-w", path)
+	_ = launchctl("bootout", domain()+"/"+label)
+	_ = launchctl("unload", "-w", path)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return State{}, err
 	}
@@ -120,14 +116,6 @@ func Disable(configDir string) (State, error) {
 }
 
 func domain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }
-
-func run(args ...string) error {
-	out, err := exec.Command("launchctl", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("launchctl %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
-	}
-	return nil
-}
 
 // escape makes a string safe inside a plist <string>. A home directory can contain an
 // ampersand, and a plist that does not parse is a login item that never runs.
@@ -145,3 +133,5 @@ const xmlHead = `<?xml version="1.0" encoding="UTF-8"?>
 const xmlTail = `</dict>
 </plist>
 `
+
+func launchctl(args ...string) error { return runTool("launchctl", args...) }

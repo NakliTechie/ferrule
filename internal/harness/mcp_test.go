@@ -525,9 +525,23 @@ func TestOnTheNetworkInferenceIsSharedAndTheVaultIsNot(t *testing.T) {
 		t.Fatal("the control token was served to the network")
 	}
 
-	// The endpoint the panel hands out is the one that works from another machine.
-	if ep := srv.LANEndpoint(); !strings.HasPrefix(ep, ip+":") {
-		t.Errorf("LANEndpoint() = %q, want the network address", ep)
+	// The endpoint the panel hands out has to be one that actually answers. Asserting a
+	// particular interface was wrong on a machine with two: it failed for the right
+	// reason — LANEndpoint was naming an interface the listener was not bound to — and
+	// the fix belongs in the product, so the test now asks the question the family asks.
+	ep := srv.LANEndpoint()
+	if ep == "" {
+		t.Fatal("a network-bound daemon offered no address for other machines")
+	}
+	req, _ = http.NewRequest(http.MethodGet, "http://"+ep+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	epResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("the address the panel hands out does not answer: %s: %v", ep, err)
+	}
+	epResp.Body.Close()
+	if epResp.StatusCode != http.StatusOK {
+		t.Errorf("the address the panel hands out answered HTTP %d, want 200", epResp.StatusCode)
 	}
 }
 
