@@ -239,3 +239,61 @@ func TestPassthroughLendsTheKeyOnlyForInference(t *testing.T) {
 		t.Fatalf("a prediction got HTTP %d; the scope refused inference", resp.StatusCode)
 	}
 }
+
+// The passthrough lane lends a provider key to an arbitrary path, so the allowlist is the
+// only thing standing between an app token and the account itself. It checked the first
+// path segment and nothing else.
+//
+// `predictions/../account` passed: the check saw `predictions` and said inference, and the
+// tail was joined onto the base URL and sent with the key attached. Ferrule answered the
+// caller 403 — and had already forwarded the request. A provider normalises before
+// routing, so what it served was /account.
+func TestThePassthroughAllowlistCannotBeWalkedPast(t *testing.T) {
+	r := newRig(t)
+	const key = "r8_the_stored_token"
+	up := mock.New(key, "black-forest-labs/flux-schnell")
+	defer up.Close()
+	r.addSource(t, "replicate", "replicate", key, up)
+	tok := r.mint(t, "app")
+
+	// Discovery legitimately calls /account to prove the key. Only what happens after the
+	// source is live is this test's business.
+	before := len(up.Requests())
+
+	for _, tail := range []string{
+		"account",
+		"predictions/../account",
+		"predictions/%2e%2e/account",
+		"predictions/..%2faccount",
+		"predictions%2f..%2faccount",
+		"predictions/./../account",
+		"predictions//../account",
+		"trainings",
+		"deployments/x",
+	} {
+		req, _ := http.NewRequest(http.MethodGet, r.srv.URL+"/p/replicate/"+tail, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%q: %v", tail, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%q answered HTTP %d, want a refusal", tail, resp.StatusCode)
+		}
+	}
+
+	// The assertion that matters is not the status the caller saw. It is whether the key
+	// was lent to a path outside the allowlist.
+	for _, q := range up.Requests()[before:] {
+		if !strings.Contains(q.Path, "/predictions") && !strings.Contains(q.Path, "/models") &&
+			!strings.Contains(q.Path, "/collections") {
+			t.Errorf("the provider key was sent to %s %s, which is not inference",
+				q.Method, q.Path)
+		}
+		if strings.Contains(q.Path, "..") {
+			t.Errorf("a dot segment reached the provider: %s — it normalises before routing",
+				q.Path)
+		}
+	}
+}

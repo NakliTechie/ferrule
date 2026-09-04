@@ -560,6 +560,12 @@ function buildAddForm(onDone) {
     state.addProvider = sel.value;
     state.lastAdd = null;
     out.replaceChildren();
+    // The base URL does not follow you to the next provider. It used to: type a host for
+    // an OpenAI-compatible endpoint, switch the picker to Anthropic, paste the Anthropic
+    // key — and the key went to the host you typed, which is a working credential handed
+    // to somebody else's server. Choosing a provider chooses its endpoint; overriding it
+    // again is one keystroke and is now a deliberate act every time.
+    delete baseIn.dataset.touched;
     sync();
   });
   baseIn.addEventListener("input", () => { baseIn.dataset.touched = "1"; });

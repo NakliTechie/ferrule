@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"ferrule/internal/secrets"
 	"net"
 	"net/url"
 	"strings"
@@ -27,13 +28,29 @@ func checkEndpoint(baseURL string, needsKey bool) Reason {
 	if u.User != nil {
 		return newReason(CodeCredentialInURL, "userinfo")
 	}
-	for k := range u.Query() {
+	// A fragment is never sent to a server, so nothing legitimate puts one on a base URL.
+	if u.Fragment != "" {
+		return newReason(CodeCredentialInURL, "fragment")
+	}
+	for k, vals := range u.Query() {
 		l := strings.ToLower(k)
 		if strings.Contains(l, "key") || strings.Contains(l, "token") ||
 			strings.Contains(l, "secret") || strings.Contains(l, "password") ||
 			strings.Contains(l, "auth") {
 			return newReason(CodeCredentialInURL, k)
 		}
+		// The name is the part the person chooses freely; the value is the part that is
+		// the key. Checking only names let `?x=sk-live-…` through, and the URL was then
+		// written to sources.base_url and quoted back in status_reason in plaintext —
+		// outside the vault, which is the one boundary this product exists to hold.
+		for _, v := range vals {
+			if secrets.Looks(v) {
+				return newReason(CodeCredentialInURL, k)
+			}
+		}
+	}
+	if secrets.Looks(u.Path) {
+		return newReason(CodeCredentialInURL, "path")
 	}
 	if u.Scheme == "https" {
 		return Reason{Code: CodeOK}

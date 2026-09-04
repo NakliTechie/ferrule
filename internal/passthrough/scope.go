@@ -35,25 +35,54 @@ var scopes = map[string]scope{
 	},
 }
 
+// canonical normalises the path a caller asked for, and refuses anything that could mean
+// one path here and a different path at the provider.
+//
+// This is the whole guard. Checking only the first segment let `predictions/../account`
+// through: the check saw `predictions` and said inference, and the tail was then joined
+// onto the base URL and sent with the key attached. Ferrule answered the caller 403, and
+// the provider — which normalises before routing — served /account. An app token became a
+// credential for the account itself, which is exactly what this scope exists to prevent.
+//
+// The tail arrives percent-decoded from net/http, so `%2e%2e` is already `..` here.
+func canonical(tail string) (string, bool) {
+	if tail == "" || strings.ContainsAny(tail, "\\\x00") {
+		return "", false
+	}
+	segs := strings.Split(tail, "/")
+	for _, s := range segs {
+		// An empty segment collapses upstream, and a dot segment climbs. Neither is a
+		// path a caller can have a legitimate reason to ask for here.
+		if s == "" || s == "." || s == ".." {
+			return "", false
+		}
+	}
+	return strings.Join(segs, "/"), true
+}
+
 // allowed reports whether a request is inference on this provider. A provider with no
 // declared scope is refused entirely rather than allowed by default — a new passthrough
 // provider must state its surface before a key is lent to it.
-func allowed(provider, method, tail string) bool {
+//
+// It returns the canonical path to forward, so the caller cannot send one thing to the
+// check and another to the provider.
+func allowed(provider, method, tail string) (string, bool) {
 	sc, ok := scopes[provider]
 	if !ok {
-		return false
+		return "", false
 	}
 	if !sc.methods[method] {
-		return false
+		return "", false
 	}
-	head := tail
-	if i := strings.IndexAny(head, "/?"); i >= 0 {
-		head = head[:i]
+	clean, ok := canonical(tail)
+	if !ok {
+		return "", false
 	}
+	head, _, _ := strings.Cut(clean, "/")
 	for _, p := range sc.prefixes {
 		if head == p {
-			return true
+			return clean, true
 		}
 	}
-	return false
+	return "", false
 }

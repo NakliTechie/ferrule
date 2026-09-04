@@ -180,7 +180,12 @@ func (d *DB) ImportGrants(gs []PortableGrant) error {
 		// working on the first restart.
 		if _, err := d.sql.Exec(`
 INSERT INTO grants (id,app,token_hash,created_at,revoked_at,shared) VALUES (?,?,?,?,?,?)
-ON CONFLICT(id) DO UPDATE SET app=excluded.app, revoked_at=excluded.revoked_at,
+ON CONFLICT(id) DO UPDATE SET app=excluded.app,
+  -- Revocation only ever moves one way. An export taken before a token was revoked
+  -- carries revoked_at=0, and letting that overwrite a later revocation brings a dead
+  -- credential back to life — including a household key that was rotated precisely
+  -- because it got out.
+  revoked_at=CASE WHEN grants.revoked_at != 0 THEN grants.revoked_at ELSE excluded.revoked_at END,
   shared=excluded.shared`,
 			g.ID, g.App, g.TokenHash, g.CreatedAt, g.RevokedAt, boolInt(g.Shared)); err != nil {
 			return err

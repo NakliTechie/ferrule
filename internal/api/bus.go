@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"ferrule/internal/secrets"
 	"fmt"
 	"net/url"
 	"sort"
@@ -208,25 +209,44 @@ func (b *Bus) Stage(name string, args Args, door, caller string) (any, error) {
 }
 
 // urlCarriesCredential reports whether a string is a URL with a secret tucked into it.
+// urlCarriesCredential reports whether a URL has a secret in it anywhere.
+//
+// It used to check only the userinfo and the *names* of query parameters, so
+// `https://host/v1?x=sk-live-...` sailed through and was written in plaintext into
+// staged_ops, sources.base_url, control responses and configuration exports. The name of
+// the parameter is the one part of a URL an attacker chooses freely; the value is the part
+// that is actually the key.
 func urlCarriesCredential(s string) bool {
 	if !strings.Contains(s, "://") {
 		return false
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return false
+		// A URL Ferrule cannot parse is a URL it cannot clear, and this decides whether
+		// to store the string. Unparseable means refused.
+		return true
 	}
 	if u.User != nil {
 		return true
 	}
-	for key := range u.Query() {
+	// A fragment is never sent to a server, so nothing legitimate puts one on a base URL,
+	// and it is a classic place to hide a token.
+	if u.Fragment != "" {
+		return true
+	}
+	for key, vals := range u.Query() {
 		k := strings.ToLower(key)
 		if strings.Contains(k, "key") || strings.Contains(k, "token") ||
 			strings.Contains(k, "secret") || strings.Contains(k, "password") {
 			return true
 		}
+		for _, v := range vals {
+			if secrets.Looks(v) {
+				return true
+			}
+		}
 	}
-	return false
+	return secrets.Looks(u.Path)
 }
 
 // Apply lands a staged op. Extra supplies any secret parameter withheld at staging time;

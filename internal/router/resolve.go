@@ -121,7 +121,14 @@ func (r *Router) fromAlias(name, via string) ([]Target, error) {
 	for i, rung := range a.Rungs {
 		t, err := r.direct(rung.SourceID, rung.ModelID, via)
 		if err != nil {
-			continue
+			// A rung that is dark or gone is what the ladder is for. A database fault is
+			// not: skipping past one would send the prompt to a different provider than
+			// the person configured, and the only sign would be the answer coming back in
+			// a different voice.
+			if errors.Is(err, ErrSourceDark) || errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return nil, err
 		}
 		t.Rung = i
 		out = append(out, t)

@@ -97,7 +97,8 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	// Scope check before the vault is touched: the key is not fetched for a call this
 	// mount will not make.
-	if !allowed(src.Provider, r.Method, tail) {
+	tail, ok = allowed(src.Provider, r.Method, tail)
+	if !ok {
 		http.Error(w, i18n.T("passthrough.methodRefused", r.Method+" /"+tail, src.Name),
 			http.StatusForbidden)
 		return

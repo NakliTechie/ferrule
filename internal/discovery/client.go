@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"ferrule/internal/secrets"
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -261,15 +261,6 @@ func (e *Engine) probeEmbeddings(ctx context.Context, spec provider.Spec, baseUR
 	return false, classifyRefusal(code, trimKnown(string(raw), key))
 }
 
-// secretish matches the shapes provider keys come in. Broad on purpose: a slightly
-// vaguer error message costs nothing, and a key copied into `sources.status_reason`
-// costs everything.
-var secretish = regexp.MustCompile(
-	`(?i)\b(?:sk-[A-Za-z0-9_\-]{8,}|gsk_[A-Za-z0-9_\-]{8,}|r8_[A-Za-z0-9_\-]{8,}|` +
-		`nvapi-[A-Za-z0-9_\-]{8,}|` +
-		`frl_[A-Za-z0-9_\-]{8,}|Bearer\s+[A-Za-z0-9._\-]{12,}|` +
-		`(?:api[-_]?key|authorization|x-api-key)["\'\s:=]+[A-Za-z0-9._\-]{12,})`)
-
 // trim bounds an upstream message and strips anything key-shaped out of it first. These
 // strings are persisted, and they are written by the provider — a provider that echoes
 // the credential it received would otherwise have Ferrule store it.
@@ -277,7 +268,7 @@ var secretish = regexp.MustCompile(
 // Shape matching is a net, not a guarantee: an opaque key matches nothing. Callers that
 // hold the actual key use trimKnown so the literal value goes first.
 func trim(s string) string {
-	s = secretish.ReplaceAllString(s, "[redacted]")
+	s = secrets.Redact(s)
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 	if len(s) > 220 {
 		return s[:220] + "…"

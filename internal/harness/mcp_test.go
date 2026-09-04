@@ -764,3 +764,71 @@ func TestTheCrossOriginSettingDoesNotPublishTheAgentDoor(t *testing.T) {
 		t.Errorf("the op API answered without the control token: HTTP %d", code)
 	}
 }
+
+// Four ways a credential could be written down in plaintext or brought back from the dead,
+// all found by an adversarial pass over the whole app before release.
+func TestCredentialsAreNotResurrectedOrWrittenDown(t *testing.T) {
+	t.Run("a revoked token stays revoked across an import", func(t *testing.T) {
+		// An export taken while a token was live carries revoked_at=0. Letting that
+		// overwrite a later revocation brings a dead credential back — including a
+		// household key that was rotated precisely because it got out.
+		a, err := app.Open(app.Options{Dir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer a.Close()
+		g, _, err := a.DB.MintGrant("laptop", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stale, err := a.DB.ExportGrants() // taken while it is live
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.DB.RevokeGrant(g.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := a.DB.ImportGrants(stale); err != nil {
+			t.Fatal(err)
+		}
+		back, err := a.DB.Grant(g.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !back.Revoked() {
+			t.Error("importing an older export un-revoked a token")
+		}
+	})
+
+	t.Run("a key hidden anywhere in a URL never reaches the database", func(t *testing.T) {
+		// The check looked at userinfo and at the *names* of query parameters. The name
+		// is the part chosen freely; the value is the part that is the key. So
+		// `?x=sk-live-…` was accepted, written to sources.base_url, and quoted back
+		// verbatim in sources.status_reason — in plaintext, outside the vault.
+		for _, base := range []string{
+			"https://h.example/v1?x=sk-live-abcdefghijklmnop",
+			"https://h.example/v1#sk-live-abcdefghijklmnop",
+			"https://h.example/sk-live-abcdefghijklmnop/v1",
+			"https://user:sk-live-abcdefghij@h.example/v1",
+			"https://h.example/v1?api_key=whatever-long-enough",
+		} {
+			r := newRig(t)
+			res, err := r.bus.Dispatch(context.Background(), "add_source", api.Args{
+				"provider": "openai-compatible", "name": "x", "base_url": base,
+			}, api.DoorCLI, "test")
+			if err == nil {
+				t.Errorf("%q was accepted; want a refusal (%#v)", base, res)
+			}
+			srcs, dbErr := r.app.DB.Sources()
+			if dbErr != nil {
+				t.Fatal(dbErr)
+			}
+			for _, s := range srcs {
+				if strings.Contains(s.BaseURL, "sk-live-") || strings.Contains(s.StatusReason, "sk-live-") {
+					t.Errorf("a key was written to the database in plaintext from %q:\n  base_url=%q\n  reason=%q",
+						base, s.BaseURL, s.StatusReason)
+				}
+			}
+		}
+	})
+}
