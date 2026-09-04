@@ -281,6 +281,23 @@ func (s *Server) reachable() bool {
 // guardOrigin keeps a random web page from driving the local API. Inference endpoints
 // are exempt: they authenticate with an app token, are called by SDKs that send no
 // Origin, and are the whole point of the daemon. Control endpoints are not exempt.
+// crossOriginAllowed reports whether the developer setting may relax this particular
+// route. It may not relax a route that has no proof of its own.
+//
+// /api/op and /api/staged require the per-run control token, which a cross-origin page
+// cannot send — Access-Control-Allow-Headers does not include it. /mcp and /api/manifest
+// have no token by design, because their clients are local agents that could read the
+// token off disk anyway. Turning the setting on made those two reachable from any origin,
+// so a page in the person's browser could drive the agent door: read the source list, the
+// ledger, the usage view, and stage operations. The setting exists so a locally-developed
+// web app can call the op API; it was never meant to publish the agent door.
+func crossOriginAllowed(a *app.App, path string) bool {
+	if !strings.HasPrefix(path, "/api/op/") && !strings.HasPrefix(path, "/api/staged/") {
+		return false
+	}
+	return a.DB.Setting(store.SetCrossOrigin, "off") == "on"
+}
+
 func guardOrigin(a *app.App, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -288,8 +305,8 @@ func guardOrigin(a *app.App, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if api.LocalOrigin(origin) || a.DB.Setting(store.SetCrossOrigin, "off") == "on" {
-			if a.DB.Setting(store.SetCrossOrigin, "off") == "on" {
+		if api.LocalOrigin(origin) || crossOriginAllowed(a, r.URL.Path) {
+			if crossOriginAllowed(a, r.URL.Path) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.Header().Set("Vary", "Origin")

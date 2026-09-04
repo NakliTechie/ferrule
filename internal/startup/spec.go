@@ -1,6 +1,7 @@
 package startup
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -27,6 +28,10 @@ const TaskName = "Ferrule"
 // Restart=on-failure, not always: a clean exit stays exited, so stopping Ferrule from a
 // terminal actually stops it. The same choice as launchd's KeepAlive/SuccessfulExit.
 func SystemdUnit(exe string) string {
+	if strings.ContainsAny(exe, "\n\r") {
+		// Refused at the caller; returning a unit here would write the injection.
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("[Unit]\n")
 	b.WriteString("Description=Ferrule — a local key vault and model router\n")
@@ -43,15 +48,26 @@ func SystemdUnit(exe string) string {
 	return b.String()
 }
 
-// systemdEscape quotes a path for a unit's ExecStart. systemd splits the line on
-// whitespace, so an unquoted path containing a space becomes two arguments and the unit
-// fails to start with a message about a binary that does not exist.
+// systemdEscape quotes a path for a unit's ExecStart.
+//
+// Three separate hazards, and quoting only handles one of them. systemd splits the line on
+// whitespace, so an unquoted path with a space becomes two arguments. It also expands %
+// specifiers — a path containing %h becomes the home directory — which quoting does not
+// stop; the escape for a literal % is %%. And a newline ends the directive, so a path
+// containing one could append arbitrary unit directives to a file Ferrule writes.
+//
+// A path with a newline is refused rather than escaped: there is no escape for it, and a
+// binary living at such a path is not a case worth serialising.
 func systemdEscape(p string) string {
+	p = strings.ReplaceAll(p, "%", "%%")
 	if !strings.ContainsAny(p, " \t\"\\'") {
 		return p
 	}
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
 }
+
+// ErrUnserialisablePath is returned for a path a unit file cannot represent.
+var ErrUnserialisablePath = errors.New("startup: the binary's path contains a line break")
 
 // SchtasksCreateArgs registers a logon task on Windows.
 //

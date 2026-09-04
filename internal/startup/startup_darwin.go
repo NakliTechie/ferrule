@@ -3,6 +3,7 @@ package startup
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -34,7 +35,15 @@ func Status(configDir string) State {
 	}
 	s.Path = path
 	if _, err := os.Stat(path); err == nil {
-		s.Enabled = true
+		// The file existing is not the same as launchd having it. A plist left behind by
+		// a failed load, or one written while the job was booted out, would have reported
+		// enabled for something that will never run. Ask the thing that would run it —
+		// and if the ask itself fails, fall back to the file rather than claiming off.
+		if err := launchctl("print", domain()+"/"+label); err == nil {
+			s.Enabled = true
+		} else if _, err := exec.LookPath("launchctl"); err != nil {
+			s.Enabled = true
+		}
 	}
 	return s
 }

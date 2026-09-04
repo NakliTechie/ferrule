@@ -71,7 +71,11 @@ func Enable(configDir string, _ ...string) (State, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return State{}, err
 	}
-	if err := os.WriteFile(path, []byte(SystemdUnit(exe)), 0o644); err != nil {
+	unit := SystemdUnit(exe)
+	if unit == "" {
+		return State{}, ErrUnserialisablePath
+	}
+	if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
 		return State{}, err
 	}
 	// daemon-reload before enable, or systemd enables the unit it had cached rather than

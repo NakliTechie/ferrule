@@ -5,6 +5,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"ferrule/internal/catalog"
 	"ferrule/internal/config"
@@ -102,7 +103,20 @@ func (a *App) pruneOrphanKeys() error {
 // It exists because per-person keys are the wrong default for the thing this is: a box in
 // the house that everyone uses. Accountability per person is a real feature and it is an
 // upgrade, not the price of admission.
+// household serialises HouseholdKey and RegenerateHouseholdKey. Without it, two callers
+// racing on a fresh install can both find no shared grant: the first inserts its row, the
+// second sees a row whose vault entry is not written yet, decides it is broken, revokes
+// it, and mints its own — leaving the first caller holding a credential that no longer
+// authenticates.
+var household sync.Mutex
+
 func (a *App) HouseholdKey() (store.Grant, string, error) {
+	household.Lock()
+	defer household.Unlock()
+	return a.householdKey()
+}
+
+func (a *App) householdKey() (store.Grant, string, error) {
 	grants, err := a.DB.Grants()
 	if err != nil {
 		return store.Grant{}, "", err
@@ -137,6 +151,8 @@ func (a *App) HouseholdKey() (store.Grant, string, error) {
 // what "someone left, or it got out" looks like: every device using the old one stops
 // working at once, which is the point.
 func (a *App) RegenerateHouseholdKey() (store.Grant, string, error) {
+	household.Lock()
+	defer household.Unlock()
 	grants, err := a.DB.Grants()
 	if err != nil {
 		return store.Grant{}, "", err
@@ -150,7 +166,7 @@ func (a *App) RegenerateHouseholdKey() (store.Grant, string, error) {
 			_ = a.Vault.Delete(vault.GrantRef(g.ID))
 		}
 	}
-	return a.HouseholdKey()
+	return a.householdKey()
 }
 
 // HouseholdApp is the name the shared key is recorded under, so the usage view says

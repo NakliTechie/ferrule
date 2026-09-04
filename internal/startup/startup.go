@@ -51,17 +51,19 @@ func runTool(name string, args ...string) error {
 	return nil
 }
 
-// selfPath is the absolute, symlink-free path to this binary. Every login manager records
-// it verbatim, and a registration pointing at a path that has moved fails silently every
-// morning — the only sign being that the house cannot reach the endpoint.
+// selfPath is the absolute path to this binary, with symlinks resolved when they can be.
+//
+// Every login manager records this verbatim, and a registration pointing at a path that
+// has moved fails silently every morning. Resolving symlinks is the point — but a failure
+// to resolve is not a reason to refuse to register, so the unresolved path is used and the
+// comment no longer claims otherwise.
 func selfPath() (string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(self)
-	if err != nil {
-		return self, nil
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		return resolved, nil
 	}
-	return resolved, nil
+	return self, nil
 }

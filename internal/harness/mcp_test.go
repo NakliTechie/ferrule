@@ -702,3 +702,65 @@ func camel(s string) string {
 	}
 	return strings.Join(parts, "")
 }
+
+// The cross-origin developer setting exists so a locally-developed web app can call the op
+// API. Turning it on also opened the two control routes that carry no token of their own —
+// /mcp and /api/manifest — to every origin, so a page in the person's browser could drive
+// the agent door: read the source list, the ledger, the usage view, and stage operations.
+//
+// The op API was never actually reachable that way, because the token header is not in
+// Access-Control-Allow-Headers. The routes with no token were.
+func TestTheCrossOriginSettingDoesNotPublishTheAgentDoor(t *testing.T) {
+	a, err := app.Open(app.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	// The setting at its most permissive, which is the case that has to hold.
+	if err := a.DB.SetSetting(store.SetCrossOrigin, "on"); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := server.New(a, server.Options{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Serve(ctx)
+	base := "http://" + srv.Addr()
+
+	ask := func(method, path, body string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(method, base+path, strings.NewReader(body))
+		req.Header.Set("Origin", "https://evil.example")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin")
+	}
+
+	// A route with no token of its own is never handed to another origin, whatever the
+	// setting says.
+	for _, path := range []string{"/mcp", "/api/manifest", "/"} {
+		code, allow := ask(http.MethodPost, path, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		if code != http.StatusForbidden {
+			t.Errorf("%s answered a foreign origin HTTP %d, want 403", path, code)
+		}
+		if allow != "" {
+			t.Errorf("%s sent Access-Control-Allow-Origin: %s", path, allow)
+		}
+	}
+
+	// The route the setting is for still works, and still needs the token — which a
+	// browser cannot send, because it is not an allowed header.
+	code, allow := ask(http.MethodPost, "/api/op/status", "{}")
+	if allow != "https://evil.example" {
+		t.Errorf("the setting no longer relaxes the op API it exists for: allow=%q", allow)
+	}
+	if code == http.StatusOK {
+		t.Errorf("the op API answered without the control token: HTTP %d", code)
+	}
+}
