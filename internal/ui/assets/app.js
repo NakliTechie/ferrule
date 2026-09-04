@@ -199,12 +199,14 @@ async function loadAll() {
 }
 
 async function loadUsage() {
-  const [u, e] = await Promise.all([
+  const [u, e, f] = await Promise.all([
     op("usage_summary", { by: ["app", "model"], since_hours: 0 }),
     op("egress_summary", { since_hours: 0 }),
+    op("recent_errors", { limit: 20 }),
   ]);
   state.usage = u;
   state.egress = e;
+  state.failures = (f && f.errors) || [];
 }
 
 /* ---------- board ---------- */
@@ -725,7 +727,48 @@ function renderUsage(pane, bar) {
       ),
     ),
   );
-  pane.replaceChildren(el("div", { class: "grid" }, egressCard), detail);
+  pane.replaceChildren(el("div", { class: "grid" }, egressCard), detail, failuresCard());
+}
+
+// failuresCard is where the reason a request failed finally shows up. The ledger has
+// recorded it since the ledger existed and nothing displayed it, so the only copy a
+// person could read was whatever their app logged.
+function failuresCard() {
+  const rows = state.failures || [];
+  const card = el("div", { class: "pad mt22" },
+    el("h3", { text: T("ui.usage.errors") }),
+    el("p", { class: "note", text: T("ui.usage.errorsBody") }));
+  if (!rows.length) {
+    card.append(el("p", { class: "note empty", text: T("ui.usage.noErrors") }));
+    return card;
+  }
+  card.append(el("table", { class: "board mt10" },
+    el("thead", {}, el("tr", {},
+      el("th", { text: T("ui.usage.col.when") }),
+      el("th", { text: T("ui.usage.col.app") }),
+      el("th", { text: T("ui.board.col.model") }),
+      el("th", { class: "r", text: T("ui.usage.col.status") }),
+      el("th", { text: T("ui.usage.col.reason") }))),
+    el("tbody", {}, ...rows.map((f) =>
+      el("tr", {},
+        el("td", { class: "num", text: when(f.ts) }),
+        el("td", { text: f.app || "—" }),
+        el("td", { class: "mono", text: f.model || "—" }),
+        el("td", { class: "r num", text: f.status ? String(f.status) : "—" }),
+        el("td", { class: "why-cell", text: f.err || "" }))))));
+  return card;
+}
+
+// when renders a ledger timestamp as something a person reads at a glance. The ledger
+// stores milliseconds and always has, so there is no unit to guess at.
+function when(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + "m ago";
+  if (mins < 1440) return Math.round(mins / 60) + "h ago";
+  return d.toLocaleDateString();
 }
 
 // A sub-millisecond average is real, not missing. Saying "0 ms" reads as a broken

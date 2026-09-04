@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/NakliTechie/ferrule/internal/netutil"
 	"net"
 	"net/http"
 	"sort"
@@ -241,14 +242,8 @@ func guardControlReach(next http.Handler) http.Handler {
 	})
 }
 
-func isLoopbackPeer(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsLoopback()
-}
+// isLoopbackPeer is netutil.IsLoopbackPeer; the guards below read better unqualified.
+var isLoopbackPeer = netutil.IsLoopbackPeer
 
 // guardShared serves the inference lanes to the rest of the network only while sharing
 // is on. Off does not close the port — the listener is still bound — it refuses the

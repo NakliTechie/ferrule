@@ -936,3 +936,87 @@ func grantsFrom(t *testing.T, r *rig) []map[string]any {
 	}
 	return out
 }
+
+// A provider's own words are the most useful thing Ferrule can hand back, and on this
+// machine they go through untouched. Off it they are somebody else's error text about
+// somebody else's account — NVIDIA's 404 carries the account id — and a person's chat app
+// on the wifi has no reason to receive it.
+//
+// This is only safe because the full text is now reachable: the ledger has recorded it
+// since the ledger existed, and until today nothing showed it to anybody.
+func TestAProvidersWordsStayOnTheMachineThatOwnsTheAccount(t *testing.T) {
+	ip := lanAddr(t)
+	a, err := app.Open(app.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	const secret = "account-f875Uf-fozkD53DiaILA79S5"
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	// Live first, then it starts refusing — a source that fails at add never routes.
+	if _, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "ollama", Provider: "ollama", BaseURL: up.BaseURL(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	up.RefuseChat = map[string]mock.Refusal{"": {
+		Status: 404, Body: `{"status":404,"detail":"Not found for ` + secret + `"}`,
+	}}
+	_, tok, err := a.HouseholdKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := server.New(a, server.Options{Addr: "0.0.0.0:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Serve(ctx)
+	_, port, _ := net.SplitHostPort(srv.Addr())
+
+	ask := func(host string) string {
+		t.Helper()
+		body := `{"model":"qwen3:8b","messages":[{"role":"user","content":"hi"}]}`
+		req, _ := http.NewRequest(http.MethodPost,
+			"http://"+net.JoinHostPort(host, port)+"/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return string(out)
+	}
+
+	if here := ask("127.0.0.1"); !strings.Contains(here, secret) {
+		t.Errorf("this machine was not given the provider's own words:\n%s", here)
+	}
+	if there := ask(ip); strings.Contains(there, secret) {
+		t.Errorf("an account identifier crossed the network to another person's app:\n%s", there)
+	}
+
+	// And the detail is not lost — it is where the person holding the keys can read it.
+	raw, err := api.NewBus(a).Dispatch(context.Background(), "recent_errors",
+		api.Args{"limit": 10}, api.DoorCLI, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mustJSONString(t, raw), secret) {
+		t.Error("the reason is gone entirely — trimming it for the network deleted it for everyone")
+	}
+}
+
+func mustJSONString(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}

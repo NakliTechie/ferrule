@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/NakliTechie/ferrule/internal/netutil"
 	"io"
 	"log"
 	"net/http"
@@ -49,11 +50,22 @@ func New(db *store.DB, v vault.Vault) *Router {
 // long generation is a legitimate request and one that has begun to stream is one the
 // caller can watch progress.
 //
-// Ferrule had no bound of its own here, and a real NVIDIA request held for 196 seconds
-// before answering 500 with an empty body — three minutes in which the calling app had
-// nothing to show and no way to know anything was wrong. A local runtime is a different
-// animal: its first token waits on the model loading into memory, which on a laptop is
-// minutes, so it gets its own clock rather than a cloud provider's.
+// Two minutes is measured, not guessed. Against a real NVIDIA account:
+//
+//	served, max_tokens 4            1.2s · 4.3s · 7.5s · 10.4s
+//	served, max_tokens 2000         14.3s to first byte, 6 KB generated
+//	served, streaming               22.2s to first byte
+//	never served                    302s, then the provider's own 504
+//
+// The distribution is bimodal with nothing between half a minute and five. A request that
+// is going to work has started answering inside 30 seconds even when it is generating two
+// thousand tokens without streaming; a request that has not started by two minutes is
+// waiting on a queue that will end in the provider's own gateway timeout. The bound sits
+// an order of magnitude above every working case and below the point where waiting longer
+// only changes which side names the failure.
+//
+// A local runtime is a different animal: its first token waits on the model loading into
+// memory, which on a laptop is minutes, so it gets its own clock.
 const (
 	cloudFirstByte = 2 * time.Minute
 	localFirstByte = 10 * time.Minute
@@ -238,11 +250,11 @@ func (r *Router) forward(w http.ResponseWriter, req *http.Request, g store.Grant
 		if !outcome.retryable || i == len(targets)-1 {
 			// A client error is the client's to fix; trying it on another model would
 			// turn a clear 400 into a confusing cascade.
-			writeErr(w, outcome.status, outcome.err)
+			writeErr(w, outcome.status, forCaller(req, outcome.err))
 			return
 		}
 	}
-	writeErr(w, http.StatusBadGateway, lastErr)
+	writeErr(w, http.StatusBadGateway, forCaller(req, lastErr))
 }
 
 type outcome struct {
@@ -511,6 +523,23 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// forCaller decides how much of a failure a particular caller is told.
+//
+// The provider's own words are the most useful thing Ferrule can hand back, and on this
+// machine they go through untouched — that is the whole point of relaying them. Off this
+// machine they are somebody else's error text about somebody else's account: NVIDIA's 404
+// carries the account id, and there is no reason a person's chat app on the wifi should
+// receive it. They get the shape of the failure and are told where the detail lives.
+//
+// Nothing is lost. The full text is in the ledger and on the Usage screen, which only
+// this machine can reach anyway.
+func forCaller(r *http.Request, msg string) string {
+	if netutil.IsLoopbackPeer(r.RemoteAddr) {
+		return msg
+	}
+	return i18n.T("route.upstreamFailedRemote")
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

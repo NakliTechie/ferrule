@@ -342,5 +342,13 @@
   "ui.home.addressLabel": "Address to hand out",
   "ui.home.addressHint": "This machine has more than one address. A hostname survives a router reboot; a number may not. If the one above does not work for them, try another:",
   "startup.noSession": "Registered. Ferrule cannot ask systemd from here — there is no user session — so this is read from the unit file. It will start at your next login.",
-  "vault.tooShort": "refusing to store a secret shorter than %d characters — nothing that short is a provider key, and Ferrule could not reliably keep it out of an error message"
+  "vault.tooShort": "refusing to store a secret shorter than %d characters — nothing that short is a provider key, and Ferrule could not reliably keep it out of an error message",
+  "op.recent_errors": "The requests that failed, newest first, with what the provider actually said.",
+  "ui.usage.errors": "What went wrong",
+  "ui.usage.errorsBody": "Failed requests, newest first, with the provider's own words. This is the full text; an app on the network is given a shorter version.",
+  "ui.usage.noErrors": "Nothing has failed.",
+  "ui.usage.col.when": "When",
+  "ui.usage.col.status": "Status",
+  "ui.usage.col.reason": "Reason",
+  "route.upstreamFailedRemote": "the provider refused this request — whoever runs this Ferrule can see why on its Usage screen"
 }

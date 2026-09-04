@@ -177,6 +177,39 @@ func (b *Bus) register() {
 			return usageReport(a, by, args.Int("since_hours"))
 		}})
 
+	// Every failed request has recorded why since the ledger existed, and nothing ever
+	// showed it to anybody. The only place a person saw the reason was the error the
+	// calling app got — which meant the reason lived wherever that app's logs went, and
+	// nowhere the person holding the keys could look.
+	b.add(&Op{Name: "recent_errors", Desc: i18n.T("op.recent_errors"),
+		Params: []Param{{Name: "limit", Type: "number", Desc: "how many, newest first (default 20)"}},
+		run: func(_ context.Context, a *app.App, args Args) (any, error) {
+			limit := args.Int("limit")
+			if limit <= 0 {
+				limit = 20
+			}
+			// Scan further back than asked, because failures are the minority of rows.
+			rows, err := a.DB.Entries(limit * 25)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]map[string]any, 0, limit)
+			for _, e := range rows {
+				if e.Err == "" && e.Status < 400 {
+					continue
+				}
+				out = append(out, map[string]any{
+					"ts": e.TS, "app": e.App, "model": e.RequestedModel,
+					"provider": e.Provider, "status": e.Status, "err": e.Err,
+					"latency_ms": e.LatencyMS,
+				})
+				if len(out) == limit {
+					break
+				}
+			}
+			return map[string]any{"errors": out}, nil
+		}})
+
 	b.add(&Op{Name: "egress_summary", Desc: i18n.T("op.egress_summary"),
 		Params: []Param{{Name: "since_hours", Type: "number", Desc: "window in hours; 0 for all time"}},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
