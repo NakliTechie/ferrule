@@ -29,6 +29,11 @@ const (
 	SetContentLogging = "content_logging" // "on" | "off" (default off, §4.5)
 	SetCrossOrigin    = "cross_origin"    // "on" | "off" (default off, developer setting)
 	SetCatalogRefresh = "catalog_refresh" // "on" | "off" (default on, disclosed)
+	// SetSharing is whether the rest of the network may use the inference endpoints.
+	// Default on: this is a household appliance, and one that only the machine it runs
+	// on can use is not one. The control surface is never covered by this — it answers
+	// only to this machine whatever the setting says.
+	SetSharing = "sharing" // "on" | "off" (default on)
 )
 
 // StagedOp is a mutating control-plane op waiting for a person to apply it (§4.7).

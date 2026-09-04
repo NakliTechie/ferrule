@@ -20,6 +20,11 @@ type Grant struct {
 	App       string `json:"app"`
 	CreatedAt int64  `json:"created_at"`
 	RevokedAt int64  `json:"revoked_at"`
+	// Shared marks the one key the whole household uses. Its token is kept in the vault
+	// so it can be read out again — a key five people need over a week cannot be a key
+	// shown once. A per-person key is not shared and is never stored: it exists as a hash
+	// and nothing else, which is what makes "turn this one off" mean something.
+	Shared bool `json:"shared,omitempty"`
 }
 
 // Revoked reports whether the grant has been revoked.
@@ -31,8 +36,10 @@ func HashToken(tok string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// MintGrant creates a token for app and returns the grant plus the token, shown once.
-func (d *DB) MintGrant(app string) (Grant, string, error) {
+// MintGrant creates a token for app and returns the grant plus the token. A per-person
+// grant is shown once and never stored; a shared one is written to the vault by the
+// caller, which is the only place a Ferrule token is ever kept.
+func (d *DB) MintGrant(app string, shared bool) (Grant, string, error) {
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
 		return Grant{}, "", err
@@ -42,9 +49,9 @@ func (d *DB) MintGrant(app string) (Grant, string, error) {
 	if _, err := rand.Read(idb); err != nil {
 		return Grant{}, "", err
 	}
-	g := Grant{ID: hex.EncodeToString(idb), App: app, CreatedAt: now()}
-	_, err := d.sql.Exec(`INSERT INTO grants (id,app,token_hash,created_at) VALUES (?,?,?,?)`,
-		g.ID, g.App, HashToken(tok), g.CreatedAt)
+	g := Grant{ID: hex.EncodeToString(idb), App: app, CreatedAt: now(), Shared: shared}
+	_, err := d.sql.Exec(`INSERT INTO grants (id,app,token_hash,created_at,shared) VALUES (?,?,?,?,?)`,
+		g.ID, g.App, HashToken(tok), g.CreatedAt, boolInt(shared))
 	if err != nil {
 		return Grant{}, "", err
 	}
@@ -59,7 +66,7 @@ func (d *DB) GrantByToken(tok string) (Grant, error) {
 		return Grant{}, ErrNotFound
 	}
 	h := HashToken(tok)
-	rows, err := d.sql.Query(`SELECT id,app,token_hash,created_at,revoked_at FROM grants`)
+	rows, err := d.sql.Query(`SELECT id,app,token_hash,created_at,revoked_at,shared FROM grants`)
 	if err != nil {
 		return Grant{}, err
 	}
@@ -67,9 +74,11 @@ func (d *DB) GrantByToken(tok string) (Grant, error) {
 	for rows.Next() {
 		var g Grant
 		var stored string
-		if err := rows.Scan(&g.ID, &g.App, &stored, &g.CreatedAt, &g.RevokedAt); err != nil {
+		var shared int
+		if err := rows.Scan(&g.ID, &g.App, &stored, &g.CreatedAt, &g.RevokedAt, &shared); err != nil {
 			return Grant{}, err
 		}
+		g.Shared = shared != 0
 		// Constant-time compare so a token is never distinguished by timing.
 		if subtle.ConstantTimeCompare([]byte(stored), []byte(h)) == 1 {
 			return g, nil
@@ -83,7 +92,7 @@ func (d *DB) GrantByToken(tok string) (Grant, error) {
 
 // Grants lists every grant, revoked ones included.
 func (d *DB) Grants() ([]Grant, error) {
-	rows, err := d.sql.Query(`SELECT id,app,created_at,revoked_at FROM grants ORDER BY created_at`)
+	rows, err := d.sql.Query(`SELECT id,app,created_at,revoked_at,shared FROM grants ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -91,9 +100,11 @@ func (d *DB) Grants() ([]Grant, error) {
 	var out []Grant
 	for rows.Next() {
 		var g Grant
-		if err := rows.Scan(&g.ID, &g.App, &g.CreatedAt, &g.RevokedAt); err != nil {
+		var shared int
+		if err := rows.Scan(&g.ID, &g.App, &g.CreatedAt, &g.RevokedAt, &shared); err != nil {
 			return nil, err
 		}
+		g.Shared = shared != 0
 		out = append(out, g)
 	}
 	return out, rows.Err()
@@ -102,8 +113,10 @@ func (d *DB) Grants() ([]Grant, error) {
 // Grant fetches one grant by id.
 func (d *DB) Grant(id string) (Grant, error) {
 	var g Grant
-	err := d.sql.QueryRow(`SELECT id,app,created_at,revoked_at FROM grants WHERE id=?`, id).
-		Scan(&g.ID, &g.App, &g.CreatedAt, &g.RevokedAt)
+	var shared int
+	err := d.sql.QueryRow(`SELECT id,app,created_at,revoked_at,shared FROM grants WHERE id=?`, id).
+		Scan(&g.ID, &g.App, &g.CreatedAt, &g.RevokedAt, &shared)
+	g.Shared = shared != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return Grant{}, ErrNotFound
 	}

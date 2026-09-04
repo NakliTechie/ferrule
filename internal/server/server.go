@@ -23,11 +23,15 @@ import (
 
 // Options configure the daemon.
 type Options struct {
+	// Addr is where the listener binds. The default is every interface, because a box
+	// in the house that only the box can use is not what this is for. Whether other
+	// machines are actually served is a setting, checked per connection — so the person
+	// can turn sharing off from the panel without a restart and without the risk of a
+	// rebind that strands the page doing the asking.
+	//
+	// Binding narrowly is still available and still absolute: --host 127.0.0.1 closes
+	// the port to the network entirely, and no setting can reopen it.
 	Addr string
-	// LAN opens the inference endpoints to the network. The control surface is not
-	// opened with them: it stays served only to this machine, enforced per connection
-	// rather than per listener, so one port and one URL still serve everything.
-	LAN bool
 }
 
 // Server is the running daemon.
@@ -35,7 +39,6 @@ type Server struct {
 	app  *app.App
 	http *http.Server
 	ln   net.Listener
-	lan  bool
 }
 
 // New builds the daemon, binding the listener so the caller learns the real address
@@ -43,7 +46,7 @@ type Server struct {
 func New(a *app.App, o Options) (*Server, error) {
 	addr := o.Addr
 	if addr == "" {
-		addr = fmt.Sprintf("127.0.0.1:%d", 8899)
+		addr = fmt.Sprintf("0.0.0.0:%d", 8899)
 	}
 	// The control surface is safe because of who can reach it, not because of what it
 	// checks: the panel is handed this run's control token inside the page the daemon
@@ -51,15 +54,10 @@ func New(a *app.App, o Options) (*Server, error) {
 	// are local agents. Opening the listener to the network without saying so would
 	// publish administrative control of every key the person owns.
 	//
-	// So a non-loopback bind is refused unless it is asked for by name — and when it is
-	// asked for, the control routes still answer only to this machine. That check moved
-	// from the listener to the connection, which is what lets one port and one URL serve
+	// So the control routes answer only to this machine, always, whatever the listener
+	// is bound to and whatever the sharing setting says. That check lives on the
+	// connection rather than the listener, which is what lets one port and one URL serve
 	// the family their inference while the vault stays where it is.
-	if !o.LAN {
-		if err := requireLoopback(addr); err != nil {
-			return nil, err
-		}
-	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -67,7 +65,7 @@ func New(a *app.App, o Options) (*Server, error) {
 
 	mux := http.NewServeMux()
 	control := api.New(a)
-	srv := &Server{app: a, ln: ln, lan: o.LAN}
+	srv := &Server{app: a, ln: ln}
 	control.SetLANEndpoint(srv.LANEndpoint())
 	router.New(a.DB, a.Vault).Mount(mux)
 	passthrough.New(a.DB, a.Vault).Mount(mux)
@@ -75,7 +73,7 @@ func New(a *app.App, o Options) (*Server, error) {
 	ui.Mount(mux, control.Token().Value())
 
 	srv.http = &http.Server{
-		Handler:           guardControlReach(guardOrigin(a, mux)),
+		Handler:           guardControlReach(guardShared(a, guardOrigin(a, mux))),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 	return srv, nil
@@ -85,7 +83,7 @@ func New(a *app.App, o Options) (*Server, error) {
 // reachable from the network. The panel quotes it when handing over a new app token, so a
 // token minted for someone else arrives with a URL that works from their machine.
 func (s *Server) LANEndpoint() string {
-	if !s.lan {
+	if !s.reachable() {
 		return ""
 	}
 	_, port, err := net.SplitHostPort(s.ln.Addr().String())
@@ -172,20 +170,38 @@ func isLoopbackPeer(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// requireLoopback refuses to bind the control surface anywhere the network can reach.
-func requireLoopback(addr string) error {
-	host, _, err := net.SplitHostPort(addr)
+// guardShared serves the inference lanes to the rest of the network only while sharing
+// is on. Off does not close the port — the listener is still bound — it refuses the
+// request and says so, which is what makes the panel's toggle instant and safe. Someone
+// who wants the port shut binds narrowly with --host, and no setting reopens that.
+//
+// The check is on the accepted connection's peer address, not on a header, so a caller
+// cannot claim to be this machine.
+func guardShared(a *app.App, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isLoopbackPeer(r.RemoteAddr) || sharingOn(a) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, i18n.T("share.off"), http.StatusForbidden)
+	})
+}
+
+// sharingOn reads the setting, defaulting to on. A database Ferrule cannot read is not a
+// reason to start serving the network: an unreadable setting falls closed.
+func sharingOn(a *app.App) bool {
+	return a.DB.Setting(store.SetSharing, "on") == "on"
+}
+
+// reachable reports whether this listener can be reached from another machine at all —
+// a fact about the bind, not about the setting.
+func (s *Server) reachable() bool {
+	host, _, err := net.SplitHostPort(s.ln.Addr().String())
 	if err != nil {
-		host = addr
-	}
-	if host == "" || strings.EqualFold(host, "localhost") {
-		return nil
+		return false
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip != nil && ip.IsLoopback() {
-		return nil
-	}
-	return fmt.Errorf("%s", i18n.T("serve.controlBindRefused", addr))
+	return ip != nil && (ip.IsUnspecified() || !ip.IsLoopback())
 }
 
 // guardOrigin keeps a random web page from driving the local API. Inference endpoints

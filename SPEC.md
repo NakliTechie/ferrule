@@ -189,7 +189,7 @@ Three refusals, all of them Ferrule declining to guess about itself:
 The control face is not an inference path. Inference for an agent goes through the
 OpenAI-compatible endpoint like anything else.
 
-**`--lan` separates them by reach, not by port.** With it, one listener serves the
+**Reach separates them, not the port.** One listener serves the
 network, and the control routes refuse any connection whose peer is not loopback. The
 peer address comes from the accepted TCP socket rather than a header, so it cannot be
 claimed: replying to a forged source requires completing a handshake the sender never

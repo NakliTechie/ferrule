@@ -87,10 +87,16 @@ remapped — which is how Ferrule helps an app that will only ever send `gpt-4o`
 ## Sharing it with the house
 
 ```
-ferrule serve --lan
+ferrule serve
 ```
 
-Ferrule is now reachable from the other machines on your network — for **inference only**.
+Sharing is on out of the box, and the panel has a switch for it — a box in the house that
+only the box can use is not what this is for. There is one **household key** everybody
+uses, ready from the first start; per-person keys are an upgrade for when you want the
+usage list to say who. To close the port to the network entirely, bind narrowly with
+`ferrule serve --host 127.0.0.1`, which no setting can undo.
+
+Ferrule is reachable from the other machines on your network — for **inference only**.
 The panel, the vault, minting tokens, exporting configuration: all of it still answers
 this machine and nothing else, and answers everyone else with a 403. That is enforced per
 connection, from the peer address of the accepted socket, so it is not something a client

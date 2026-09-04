@@ -65,6 +65,7 @@ var added = []struct{ table, column, decl string }{
 	{"sources", "status_remedy", `TEXT NOT NULL DEFAULT ''`},
 	{"sources", "insecure", `INTEGER NOT NULL DEFAULT 0`},
 	{"sources", "test_model", `TEXT NOT NULL DEFAULT ''`},
+	{"grants", "shared", `INTEGER NOT NULL DEFAULT 0`},
 }
 
 func (d *DB) migrate() error {

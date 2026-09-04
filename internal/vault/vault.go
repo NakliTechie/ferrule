@@ -380,6 +380,11 @@ func (v *ageVault) Unseal(b []byte, passphrase string) error {
 // reaches SQLite, never the secret.
 func Ref(sourceID string) string { return "source:" + sourceID }
 
+// GrantRef is where a shared grant's own token lives. Ferrule keeps exactly one class of
+// token it issued: the household's, because a key several people need over several days
+// cannot be a key shown once. Per-person tokens are never stored.
+func GrantRef(grantID string) string { return "grant:" + grantID }
+
 // Prune removes stored secrets that nothing refers to any more.
 //
 // The vault and the source table are two stores with no transaction between them, so a

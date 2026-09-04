@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"io"
 	"regexp"
@@ -18,6 +20,7 @@ import (
 	"ferrule/internal/discovery"
 	"ferrule/internal/mock"
 	"ferrule/internal/server"
+	"ferrule/internal/store"
 	"ferrule/internal/ui"
 )
 
@@ -464,7 +467,7 @@ func TestOnTheNetworkInferenceIsSharedAndTheVaultIsNot(t *testing.T) {
 	}
 	tok := res.(map[string]any)["token"].(string)
 
-	srv, err := server.New(a, server.Options{Addr: ip + ":0", LAN: true})
+	srv, err := server.New(a, server.Options{Addr: ip + ":0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,22 +531,112 @@ func TestOnTheNetworkInferenceIsSharedAndTheVaultIsNot(t *testing.T) {
 	}
 }
 
-// Without --lan, a non-loopback bind is still refused outright.
-func TestWithoutLANANonLoopbackBindIsRefused(t *testing.T) {
+// Sharing is a setting checked on the accepted connection, not a decision made when the
+// listener was bound. That is what lets the panel turn it off and on with no restart —
+// and the restart was the reason it was a flag, which is the reason nobody would ever
+// have used it.
+//
+// Bound to a real network address here, because the guard turns entirely on the peer
+// address of the accepted connection and a loopback server cannot exercise it.
+func TestSharingIsASettingThatTakesEffectWithoutARestart(t *testing.T) {
+	ip := lanAddr(t)
 	a, err := app.Open(app.Options{Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if _, err := server.New(a, server.Options{Addr: "0.0.0.0:0"}); err == nil {
-		t.Fatal("a non-loopback bind was accepted without --lan")
+
+	up := mock.New("", "qwen3:8b")
+	defer up.Close()
+	if _, err := a.Discovery.Add(context.Background(), discovery.AddRequest{
+		Name: "ollama", Provider: "ollama", BaseURL: up.BaseURL(),
+	}); err != nil {
+		t.Fatal(err)
 	}
+	_, tok, err := a.HouseholdKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Every interface, which is the shipped default — the point of this test is that one
+	// listener serves this machine and the network differently, by setting.
+	srv, err := server.New(a, server.Options{Addr: "0.0.0.0:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Serve(ctx)
+
+	ask := func(host string) int {
+		req, _ := http.NewRequest(http.MethodGet, "http://"+host+"/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET from %s: %v", host, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	_, port, _ := net.SplitHostPort(srv.Addr())
+	network, here := net.JoinHostPort(ip, port), net.JoinHostPort("127.0.0.1", port)
+
+	// On by default: a household appliance only its own machine can use is not one.
+	if code := ask(network); code != http.StatusOK {
+		t.Fatalf("sharing is not on by default: the network got HTTP %d, want 200", code)
+	}
+
+	if err := a.DB.SetSetting(store.SetSharing, "off"); err != nil {
+		t.Fatal(err)
+	}
+	if code := ask(network); code != http.StatusForbidden {
+		t.Errorf("sharing off served the network HTTP %d, want 403 — the toggle did not "+
+			"take effect on the next request", code)
+	}
+	// Off means off for the network and nothing else. The machine Ferrule runs on keeps
+	// working, or turning sharing off would break the person doing the turning.
+	if code := ask(here); code != http.StatusOK {
+		t.Errorf("sharing off broke this machine too: HTTP %d, want 200", code)
+	}
+
+	if err := a.DB.SetSetting(store.SetSharing, "on"); err != nil {
+		t.Fatal(err)
+	}
+	if code := ask(network); code != http.StatusOK {
+		t.Errorf("sharing back on served the network HTTP %d, want 200", code)
+	}
+}
+
+// A narrow bind is absolute: no setting reopens a port that was never opened. This is the
+// escape hatch for someone who wants the network to see nothing at all, and it has to be
+// stronger than a row in a database the panel can write.
+func TestANarrowBindCannotBeReopenedByASetting(t *testing.T) {
+	ip := lanAddr(t)
+	a, err := app.Open(app.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.DB.SetSetting(store.SetSharing, "on"); err != nil {
+		t.Fatal(err)
+	}
+
 	srv, err := server.New(a, server.Options{Addr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Serve(ctx)
+
 	if ep := srv.LANEndpoint(); ep != "" {
-		t.Errorf("LANEndpoint() = %q on a loopback daemon, want empty", ep)
+		t.Errorf("a loopback bind offered the network the address %q", ep)
+	}
+	_, port, _ := net.SplitHostPort(srv.Addr())
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 2*time.Second)
+	if err == nil {
+		conn.Close()
+		t.Error("the network reached a listener bound to loopback, with sharing on")
 	}
 }
 

@@ -21,8 +21,7 @@ import (
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", envPort(), "port to listen on")
-	host := fs.String("host", "127.0.0.1", "address to bind; localhost only by default")
-	lan := fs.Bool("lan", false, "let other machines on your network use the inference endpoints; the control panel and your vault stay on this machine")
+	host := fs.String("host", "0.0.0.0", "address to bind; use 127.0.0.1 to close the port to the network entirely")
 	passphrase := fs.Bool("passphrase", false, "prompt for a passphrase to unlock the vault, so nothing that can open it is written to disk")
 	noDetect := fs.Bool("no-detect", false, "skip the startup scan for local runtimes")
 	if err := fs.Parse(args); err != nil {
@@ -44,15 +43,14 @@ func cmdServe(args []string) error {
 	}
 	defer a.Close()
 
-	bind := *host
-	if *lan && bind == "127.0.0.1" {
-		// --lan without a host means "every interface"; typing both would be noise.
-		bind = "0.0.0.0"
-	}
-	srv, err := server.New(a, server.Options{
-		Addr: fmt.Sprintf("%s:%d", bind, *port), LAN: *lan,
-	})
+	srv, err := server.New(a, server.Options{Addr: fmt.Sprintf("%s:%d", *host, *port)})
 	if err != nil {
+		return err
+	}
+	// The household key exists from the first start, because the first thing a person
+	// does with this is give it to somebody. Minting it on demand would put a step
+	// between them and the thing the product is for.
+	if _, _, err := a.HouseholdKey(); err != nil {
 		return err
 	}
 
@@ -61,7 +59,12 @@ func cmdServe(args []string) error {
 	fmt.Println(i18n.T("serve.vaultBackend", a.Vault.Backend()))
 	if ep := srv.LANEndpoint(); ep != "" {
 		fmt.Println()
-		fmt.Println(i18n.T("serve.lanListening", ep))
+		on := a.DB.Setting(store.SetSharing, "on") == "on"
+		if on {
+			fmt.Println(i18n.T("serve.lanListening", ep))
+		} else {
+			fmt.Println(i18n.T("serve.lanOff", ep))
+		}
 		fmt.Println("  " + i18n.T("serve.lanNote"))
 		fmt.Println("  " + i18n.T("serve.lanToken"))
 		fmt.Println("  " + i18n.T("serve.lanCleartext"))

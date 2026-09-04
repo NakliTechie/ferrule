@@ -103,9 +103,13 @@ stdin when piped.
 
 ## Constraints worth knowing before you act
 
-- **Localhost only** by default. The control plane needs a per-run token the daemon hands
-  only to the page it serves; a cross-origin caller cannot obtain it.
-- **`serve --lan` opens the inference endpoints to the local network, and only those.**
+- **The control plane is loopback-only, always.** It needs a per-run token the daemon
+  hands only to the page it serves; a cross-origin caller cannot obtain it.
+- **The inference endpoints are shared with the local network by default**, and only
+  those. Sharing is the `sharing` setting (`on`|`off`, default on), checked on the peer
+  address of each accepted connection, so the panel's switch takes effect on the next
+  request with no restart. `--host 127.0.0.1` closes the port outright; no setting
+  reopens it.
   The control routes refuse any connection whose peer is not loopback, so `/api`, `/mcp`
   and the panel answer 403 from another machine no matter what token is presented. If you
   are running on a machine other than the daemon's, you have the inference face and not

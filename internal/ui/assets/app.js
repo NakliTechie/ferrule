@@ -879,14 +879,19 @@ function renderHome(pane, bar) {
         disabled: !liveModelCount(), onclick: () => aliasEditor(null) }),
       state.aliases.length ? el("div", { class: "rows" }, ...state.aliases.map(choiceRow))
         : homeEmpty(liveModelCount() ? T("ui.home.choicesEmpty") : T("ui.home.choicesNoModels"))),
+    // Per-person keys are an upgrade, not the price of admission: the household key
+    // above already works for everyone. This step is for the day you want the usage view
+    // to say who, or to cut one person off without cutting off the house.
     homeStep("3", T("ui.home.people"), T("ui.home.peopleBody"),
       el("button", { class: "act", type: "button", text: T("ui.home.addPerson"), onclick: mintDialog }),
-      livePeople().length ? el("div", { class: "rows" }, ...livePeople().map(personRow))
+      named().length ? el("div", { class: "rows" }, ...named().map(personRow))
         : homeEmpty(T("ui.home.peopleEmpty"))),
   ));
 }
 
 const livePeople = () => state.grants.filter((g) => !g.revoked);
+// The household key lives in the share card, not in the list of people.
+const named = () => livePeople().filter((g) => !g.shared);
 // Four decimals is right in the ledger and wrong on a household screen, where it reads
 // as a rounding error rather than as a number. Two, unless two would round it to zero.
 const money = (c) => {
@@ -912,21 +917,69 @@ const homeEmpty = (text) => el("p", { class: "note empty", text });
 // and what do I give them. When Ferrule is bound to this machine only, it says so and
 // says how to change it, rather than leaving an address-shaped hole.
 function shareCard() {
-  const lan = (state.status && state.status.lan_endpoint) || "";
+  const st = state.status || {};
+  const lan = st.lan_endpoint || "";
+  const on = st.sharing !== "off";
+  // No LAN address at all means the listener was bound narrowly on purpose. That is not
+  // a toggle this panel gets to flip, and offering one that cannot work would be a lie.
   if (!lan) {
     return el("div", { class: "share", "data-off": "" },
-      el("h3", { text: T("ui.home.notShared") }),
-      el("p", { class: "note", text: T("ui.home.notSharedBody") }),
-      el("pre", { class: "mono code", text: "ferrule serve --lan" }));
+      el("h3", { text: T("ui.home.bound") }),
+      el("p", { class: "note", text: T("ui.home.boundBody") }),
+      el("pre", { class: "mono code", text: "ferrule serve" }));
   }
   const url = "http://" + lan + "/v1";
-  return el("div", { class: "share" },
-    el("h3", { text: T("ui.home.shared") }),
-    el("p", { class: "note", text: T("ui.home.sharedBody") }),
-    el("div", { class: "share-url" },
+  return el("div", { class: "share", "data-off": on ? null : "" },
+    el("div", { class: "share-head" },
+      el("h3", { text: on ? T("ui.home.shared") : T("ui.home.notShared") }),
+      el("div", { class: "spacer" }),
+      toggle(on, T("ui.home.shareToggle"), (next) =>
+        run(() => op("set_setting", { key: "sharing", value: next ? "on" : "off" }),
+          T("ui.home.shareToggle")))),
+    el("p", { class: "note", text: on ? T("ui.home.sharedBody") : T("ui.home.notSharedBody") }),
+    on ? el("div", { class: "share-url" },
       el("code", { class: "mono", text: url }),
-      copyButton(url)),
+      copyButton(url)) : null,
+    on ? householdKeyRow() : null,
   );
+}
+
+// toggle is a checkbox that reads as a switch. It is a real input so it is reachable by
+// keyboard and announced as one, rather than a div that happens to respond to clicks.
+function toggle(on, label, onChange) {
+  const box = el("input", { type: "checkbox", checked: on ? true : null,
+    onchange: (e) => onChange(e.target.checked) });
+  return el("label", { class: "switch" }, box, el("span", { text: label }));
+}
+
+// householdKeyRow shows the one key the whole house uses. It is fetched on demand rather
+// than carried in the board's payload, so a credential is not sitting in memory on every
+// screen that happens to render.
+function householdKeyRow() {
+  const holder = el("div", { class: "share-key" },
+    el("button", { class: "act", type: "button", text: T("ui.home.showKey"),
+      onclick: async (e) => {
+        try {
+          const r = await op("household_key");
+          holder.replaceChildren(
+            el("code", { class: "mono", text: r.token }),
+            copyButton(r.token),
+            el("button", { class: "act", "data-danger": true, type: "button",
+              text: T("ui.home.newKey"), onclick: regenerateHouseholdKey }),
+            el("span", { class: "note", text: T("ui.home.keyHint") }));
+        } catch (err) { toast(err.message, "error"); }
+      } }),
+    el("span", { class: "note", text: T("ui.home.keyHint") }));
+  return holder;
+}
+
+function regenerateHouseholdKey() {
+  modal(T("ui.home.newKey"),
+    el("p", { class: "note", text: T("ui.home.newKeyBody") }),
+    el("div", { class: "actions-lg" },
+      el("button", { class: "act", "data-danger": true, type: "button", text: T("ui.home.newKey"),
+        onclick: async () => { closeModal(); await run(() => op("regenerate_household_key"), T("ui.home.newKey")); } }),
+      el("button", { class: "act", type: "button", text: T("ui.action.cancel"), onclick: closeModal })));
 }
 
 function copyButton(text) {

@@ -50,7 +50,11 @@ func (b *Bus) register() {
 				"catalog_source":     catalog.RemoteURL,
 				"catalog_disclosure": i18n.T("catalog.disclosure", catalog.RemoteURL),
 				"lan_endpoint":       bus.lanEndpoint,
-				"sovereignty":        i18n.T("app.sovereignty"),
+				// Two different facts, and conflating them is how a toggle lies: whether
+				// other machines *could* reach this listener at all, and whether they are
+				// currently being served. Only the second is a setting.
+				"sharing":     a.DB.Setting(store.SetSharing, "on"),
+				"sovereignty": i18n.T("app.sovereignty"),
 			}, nil
 		}})
 
@@ -358,13 +362,13 @@ func (b *Bus) register() {
 
 	b.add(&Op{Name: "set_setting", Desc: i18n.T("op.set_setting"), Mutating: true,
 		Params: []Param{
-			{Name: "key", Type: "string", Required: true, Desc: "content_logging | cross_origin"},
+			{Name: "key", Type: "string", Required: true, Desc: "content_logging | cross_origin | sharing"},
 			{Name: "value", Type: "string", Required: true, Desc: "on | off"},
 		},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
 			k, v := args.Str("key"), args.Str("value")
 			switch k {
-			case store.SetContentLogging, store.SetCrossOrigin, store.SetCatalogRefresh:
+			case store.SetContentLogging, store.SetCrossOrigin, store.SetCatalogRefresh, store.SetSharing:
 			default:
 				return nil, fmt.Errorf("unknown setting %q", k)
 			}
@@ -382,11 +386,33 @@ func (b *Bus) register() {
 	b.add(&Op{Name: "mint_grant", Desc: i18n.T("op.mint_grant"), Mutating: true, PersonOnly: true,
 		Params: []Param{{Name: "app", Type: "string", Required: true, Desc: "the app this token identifies"}},
 		run: func(_ context.Context, a *app.App, args Args) (any, error) {
-			g, tok, err := a.DB.MintGrant(args.Str("app"))
+			g, tok, err := a.DB.MintGrant(args.Str("app"), false)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"grant": g, "token": tok, "shown_once": true}, nil
+		}})
+
+	// Person-only for the same reason mint_grant is: it returns a live credential. An
+	// agent asking for the household key is asking for the ability to spend money, and
+	// the door it came through cannot tell whose agent it is.
+	b.add(&Op{Name: "household_key", Desc: i18n.T("op.household_key"), PersonOnly: true,
+		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
+			g, tok, err := a.HouseholdKey()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"grant": g, "token": tok}, nil
+		}})
+
+	b.add(&Op{Name: "regenerate_household_key", Desc: i18n.T("op.regenerate_household_key"),
+		Mutating: true, PersonOnly: true,
+		run: func(_ context.Context, a *app.App, _ Args) (any, error) {
+			g, tok, err := a.RegenerateHouseholdKey()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"grant": g, "token": tok}, nil
 		}})
 
 	b.add(&Op{Name: "read_content", Desc: i18n.T("op.read_content"), PersonOnly: true,

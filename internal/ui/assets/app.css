@@ -392,3 +392,11 @@ header.bar input.cap { width: 13ch; }
 .step > header .spacer { flex: 1; }
 /* Empty states line up with the step's own text, not with its number. */
 .note.empty { margin-left: 31px; max-width: 52ch; }
+
+.share-head { display: flex; align-items: center; gap: 12px; }
+.switch { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; flex: none;
+  font-size: var(--t-label-size); color: var(--ink-70); }
+.switch input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.share-key { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+.share-key code { font-size: var(--t-datum-size); color: var(--ink-100); word-break: break-all; }
+.share-key .note { flex-basis: 100%; }
