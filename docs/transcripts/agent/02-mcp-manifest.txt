@@ -1,0 +1,35 @@
+$ curl -s http://127.0.0.1:8892/mcp | python3 -c 'import json,sys; m=json.load(sys.stdin); print(m["instructions"]); print(); [print("  "+t["name"].ljust(18), t["description"][:80]) for t in m["tools"]]'
+Ferrule's control plane. Read ops answer immediately. Mutating ops are staged and land only when the person applies them. Person-only ops cannot be delegated. Inference does not go through here: point your client at the OpenAI-compatible endpoint with a Ferrule app token.
+
+  add_source         Add a source: paste a key for a known provider, or a key and base URL for an unk
+  brief              The whole situation in one bounded read: sources and why any are dark, what the 
+  catalog_refresh    Refresh the capability catalog from its maintained source now.
+  detect_local       Scan localhost for known runtimes and adopt what is running.
+  egress_summary     What left the machine, and what stayed on it.
+  export_config      Write a portable encrypted configuration file, sealed under a passphrase so the 
+  forget_content     Delete everything the content log holds.
+  get_alias          Read one alias and its fallback ladder.
+  household_key      Read the key the whole household shares. Person-only: it returns a live credenti
+  import_config      Read a portable encrypted configuration file and merge it into local state — sou
+  list_aliases       List every alias and its fallback ladder.
+  list_grants        List app tokens and what each one spent.
+  list_models        List every model on every live source, with capability, context, and cost.
+  list_remaps        List every model-id remap.
+  list_sources       List every source, live and failed, with its reason.
+  list_staged        List control operations staged for a person to apply.
+  mint_grant         Mint an app token. Person-only: it returns a credential, shown once.
+  read_content       Read the local content log, when content logging is on. Person-only: it returns 
+  recent_errors      The requests that failed, newest first, with what the provider actually said.
+  refresh_source     Re-probe a source and re-classify its models.
+  regenerate_household_key Retire the household key and issue a new one. Every device using the old one sto
+  remove_alias       Delete an alias.
+  remove_remap       Delete a remap.
+  remove_source      Remove a source, its models, and its stored key.
+  revoke_grant       Revoke an app token.
+  set_alias          Point an alias at an ordered ladder of models.
+  set_remap          Serve a hardcoded model id from a model of your choosing.
+  set_setting        Change a Ferrule setting.
+  set_share_address  Choose which of this machine's addresses the household is given.
+  set_startup        Register or unregister the daemon with the login manager. Person-only: it writes
+  status             Ferrule's own state: version, config dir, vault backend, catalog date.
+  usage_summary      Spend, volume, latency, and errors, grouped as you ask.

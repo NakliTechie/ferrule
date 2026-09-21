@@ -133,11 +133,11 @@ nav button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1p
 }
 #rail-foot > div { min-width: 0; overflow-wrap: anywhere; }
 #rail-foot .k { color: var(--ink-50); text-transform: uppercase; letter-spacing: 0.07em; }
-#rail-foot button.link {
+#rail-foot button.link, #rail-foot a.link {
   all: unset; cursor: pointer; color: var(--ink-50); font-size: var(--t-label-size);
   text-transform: uppercase; letter-spacing: 0.07em; text-decoration: underline dotted;
 }
-#rail-foot button.link:hover { color: var(--ink-100); }
+#rail-foot button.link:hover, #rail-foot a.link:hover { color: var(--ink-100); }
 
 /* ---- main ---- */
 #main { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }

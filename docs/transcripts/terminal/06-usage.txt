@@ -1,0 +1,8 @@
+$ ferrule usage
+GROUP                             REQUESTS  ERRORS  TOKENS  LATENCY  COST
+zed / claude-opus-5               24        0       336     0ms      $0.0094
+research-agent / claude-opus-5    18        0       252     0ms      $0.0070
+zed / qwen3:8b                    40        0       560     0ms      $0.0000
+transcribe.sh / nomic-embed-text  24        0       336     0ms      $0.0000
+research-agent / gemma3:12b       14        0       196     0ms      $0.0000
+Total                             120                                $0.0164

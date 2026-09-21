@@ -1,0 +1,6 @@
+$ ferrule key kitchen-ipad
+Minted app token for "kitchen-ipad". This is shown once:
+
+  frl_fKSbN3RRarBseWtNHBx404j8_K4RnMqc
+
+Point the app at http://127.0.0.1:8892/v1 with this as its API key.

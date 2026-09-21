@@ -1,0 +1,15 @@
+$ ferrule ls models
+MODEL                    SOURCE     WHERE  CAPABILITIES          CONTEXT  IN $/M  OUT $/M
+claude-haiku-4-5         anthropic  cloud  chat,vision,tools     200000   0.80    4.00
+claude-opus-5            anthropic  cloud  chat,vision,tools     200000   15.00   75.00
+claude-sonnet-5          anthropic  cloud  chat,vision,tools     200000   3.00    15.00
+deepseek-chat            deepseek   cloud  chat,tools            64000    0.27    1.10
+deepseek-reasoner        deepseek   cloud  chat,reasoning,tools  64000    0.55    2.19
+gemma3:12b               ollama     local  chat                  8192     —       —
+llama-3.1-8b-instruct    ollama     local  chat,tools            131072   0.05    0.08
+llama-3.3-70b-versatile  groq       cloud  chat,tools            131072   0.59    0.79
+llama-4-scout-17b        groq       cloud  chat,vision,tools     131072   0.11    0.34
+llava:13b                ollama     local  chat,vision           4096     —       —
+mixtral-8x7b-32768       groq       cloud  chat,tools            32768    0.24    0.24
+nomic-embed-text         ollama     local  embeddings            8192     —       —
+qwen3:8b                 ollama     local  chat,tools            32768    —       —

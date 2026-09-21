@@ -1,0 +1,6 @@
+$ ferrule alias
+ALIAS   LADDER
+cheap   ollama/gemma3:12b → deepseek/deepseek-chat
+fast    ollama/qwen3:8b → groq/llama-3.3-70b-versatile
+smart   anthropic/claude-opus-5 → deepseek/deepseek-reasoner
+vision  ollama/llava:13b → anthropic/claude-sonnet-5

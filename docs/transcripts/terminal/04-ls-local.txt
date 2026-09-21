@@ -1,0 +1,7 @@
+$ ferrule ls models --local
+MODEL                  SOURCE  WHERE  CAPABILITIES  CONTEXT  IN $/M  OUT $/M
+gemma3:12b             ollama  local  chat          8192     —       —
+llama-3.1-8b-instruct  ollama  local  chat,tools    131072   0.05    0.08
+llava:13b              ollama  local  chat,vision   4096     —       —
+nomic-embed-text       ollama  local  embeddings    8192     —       —
+qwen3:8b               ollama  local  chat,tools    32768    —       —

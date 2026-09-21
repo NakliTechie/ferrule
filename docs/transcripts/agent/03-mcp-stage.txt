@@ -1,0 +1,19 @@
+$ curl -s -X POST http://127.0.0.1:8892/mcp -H 'Content-Type: application/json' -d '{
+  "jsonrpc":"2.0","id":1,"method":"tools/call",
+  "params":{"name":"set_alias","arguments":{"name":"everyday","ladder":["ollama/qwen3:8b","deepseek/deepseek-chat"]}}
+}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["content"][0]["text"])'
+{
+  "args": {
+    "ladder": [
+      "ollama/qwen3:8b",
+      "deepseek/deepseek-chat"
+    ],
+    "name": "everyday"
+  },
+  "dropped_undeclared": null,
+  "id": "76b5abea04e4",
+  "message": "Staged set_alias — apply it in Ferrule to land the change.",
+  "op": "set_alias",
+  "staged": true,
+  "withheld": null
+}

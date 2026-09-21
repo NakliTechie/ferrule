@@ -1,0 +1,25 @@
+$ ferrule status
+ferrule dev · http://127.0.0.1:8892/v1
+
+SOURCE     WHERE  LANE    STATUS  DETAIL
+ollama     local  tokens  live    
+anthropic  cloud  tokens  live    
+deepseek   cloud  tokens  live    
+groq       cloud  tokens  live    
+groq-typo  cloud  tokens  failed  unreachable · could not reach http://127.0.0.1:1/v1/models: Get "http://127.0.0.1:1/v1/models": dial tcp…
+
+13 model(s) servable — 5 local, 8 cloud
+  chat 12 · embeddings 1 · reasoning 1 · tools 10 · vision 5
+
+ALIAS   RUNGS  SERVING
+cheap   2      ollama/gemma3:12b
+fast    2      ollama/qwen3:8b
+smart   2      anthropic/claude-opus-5
+vision  2      ollama/llava:13b
+
+3 app token(s), 3 live · last 24h: 78 local, 42 off-machine
+vault encrypted file store (age) · catalog 2026-09-03 (stale)
+
+next:
+  groq-typo — could not reach http://127.0.0.1:1/v1/models: Get "http://127.0.0.1:1/v1/models": dial tcp 127.0.0.1:1: connect: connection refused  ·  Check the base URL, and that the service is running and listening.
+  The capability catalog has not refreshed in over a day. Costs and context lengths may be behind.

@@ -1,0 +1,10 @@
+$ curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -H "Authorization: Bearer $FERRULE_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"groq-typo/llama-3.3-70b-versatile","messages":[{"role":"user","content":"hi"}]}' | python3 -m json.tool
+{
+    "error": {
+        "code": 404,
+        "message": "no model, alias, or remap named \"groq-typo/llama-3.3-70b-versatile\": source groq-typo is failed, not live: router: source not live",
+        "type": "ferrule_error"
+    }
+}

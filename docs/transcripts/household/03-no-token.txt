@@ -1,0 +1,7 @@
+$ curl -s -i http://127.0.0.1:8892/v1/models | head -12
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+Date: Mon, 21 Sep 2026 16:27:53 GMT
+Content-Length: 134
+
+{"error":{"code":401,"message":"missing Authorization header — pass a Ferrule app token as a Bearer token","type":"ferrule_error"}}

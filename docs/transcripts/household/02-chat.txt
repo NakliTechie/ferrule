@@ -1,0 +1,23 @@
+$ curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -H "Authorization: Bearer $FERRULE_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"fast","messages":[{"role":"user","content":"Say hello in five words."}]}' | python3 -m json.tool
+{
+    "choices": [
+        {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+                "content": "ferrule routed this",
+                "role": "assistant"
+            }
+        }
+    ],
+    "id": "chatcmpl-mock",
+    "model": "qwen3:8b",
+    "object": "chat.completion",
+    "usage": {
+        "completion_tokens": 3,
+        "prompt_tokens": 11,
+        "total_tokens": 14
+    }
+}

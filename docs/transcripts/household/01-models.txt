@@ -1,0 +1,25 @@
+$ curl -s http://127.0.0.1:8892/v1/models -H "Authorization: Bearer $FERRULE_KEY" | python3 -m json.tool | head -24
+{
+    "data": [
+        {
+            "ferrule": {
+                "capabilities": [
+                    "chat"
+                ],
+                "context_length": 8192,
+                "source": "ollama",
+                "where": "local"
+            },
+            "id": "gemma3:12b",
+            "object": "model",
+            "owned_by": "ollama"
+        },
+        {
+            "ferrule": {
+                "capabilities": [
+                    "chat",
+                    "tools"
+                ],
+                "context_length": 131072,
+                "source": "ollama",
+                "where": "local"

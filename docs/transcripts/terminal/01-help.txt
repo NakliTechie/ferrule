@@ -1,0 +1,22 @@
+$ ferrule --help
+ferrule — a local key vault and model router
+
+Verbs:
+  status   the whole situation in one read (--json for an agent)
+  serve    start the daemon (endpoints + control surface)
+  open     make sure it is running, then show the panel
+  startup  start Ferrule when you log in (on | off)
+  add      add a source (paste a key, or adopt a detected runtime)
+  ls       list sources / models / aliases
+  refresh  re-check a stored source, using the key it already holds
+  rm       remove a source, its models, and its key
+  alias    create, edit, or remove an alias
+  remap    serve a hardcoded model id from a model of your choosing
+  key      mint or revoke an app token
+  usage    per-app and per-model spend, volume, and egress
+  export   write a portable encrypted configuration file
+  import   read a portable encrypted configuration file
+  version  print the version
+
+Exit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the
+command was wrong.

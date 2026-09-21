@@ -1,0 +1,6 @@
+$ ferrule usage --egress
+WHERE        REQUESTS  BYTES
+local        78        24854
+off-machine  42        13566
+
+off-machine share  35%

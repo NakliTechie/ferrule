@@ -38,7 +38,8 @@ c.chat.completions.create(model="everyday", messages=[...])
 ```
 
 No config file, no account, no restart. No keys to hand? `make demo` runs a whole Ferrule
-on fake providers.
+on fake providers. Every screen and command, with what it is for: **[the guide](https://naklitechie.github.io/ferrule/)** —
+also served by your own Ferrule at `/guide/`.
 
 ## Why
 
@@ -115,5 +116,5 @@ macOS, Linux and Windows. Nothing is signed or notarised; Intel Macs get the
 
 MIT — see [LICENSE](LICENSE). Embedded typefaces are OFL 1.1; see [NOTICE](NOTICE).
 
-Founding document: [FERRULE.md](FERRULE.md) · what shipped: [SPEC.md](SPEC.md) · changes:
-[CHANGELOG.md](CHANGELOG.md) · for a coding agent: [llms.txt](llms.txt)
+[The guide](https://naklitechie.github.io/ferrule/) · founding document: [FERRULE.md](FERRULE.md) ·
+what shipped: [SPEC.md](SPEC.md) · changes: [CHANGELOG.md](CHANGELOG.md) · for a coding agent: [llms.txt](llms.txt)

@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ferrule — the guide</title>
+<meta name="description" content="Every screen and command in Ferrule, the local key vault and model router, with what each one is for.">
+<style>
+@font-face{font-family:"Ferrule Sans";src:url(fonts/IBMPlexSans-Regular.woff2) format("woff2");font-weight:400}
+@font-face{font-family:"Ferrule Sans";src:url(fonts/IBMPlexSans-Medium.woff2) format("woff2");font-weight:500}
+@font-face{font-family:"Ferrule Mono";src:url(fonts/JetBrainsMono-Regular.woff2) format("woff2");font-weight:400}
+@font-face{font-family:"Ferrule Mono";src:url(fonts/JetBrainsMono-Medium.woff2) format("woff2");font-weight:500}
+:root{--canvas:#0d0f11;--ink-100:rgba(236,238,240,.92);--ink-70:rgba(236,238,240,.62);--ink-50:rgba(236,238,240,.42);
+--ink-30:rgba(236,238,240,.24);--ink-15:rgba(236,238,240,.12);--ink-08:rgba(236,238,240,.06);--accent:#3fb950;--error:#f85149;
+--fill:rgba(236,238,240,.045);--sans:"Ferrule Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"Ferrule Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--canvas);color:var(--ink-100);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.92em;color:var(--ink-100)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+header.top{border-bottom:1px solid var(--ink-15);padding:36px 0 22px}
+.brand{font:500 13px var(--mono);letter-spacing:.22em;color:var(--accent)}
+h1{margin:10px 0 6px;font-weight:500;font-size:30px;letter-spacing:-.01em}
+.lede{margin:0;max-width:720px;color:var(--ink-70)}
+.links{margin-top:14px;font-size:13px;color:var(--ink-50)}.links a{margin-right:16px}
+.search{position:sticky;top:0;z-index:5;background:rgba(13,15,17,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--ink-15);padding:10px 0}
+.search .wrap{display:flex;gap:10px;align-items:center}
+.search input{flex:1;max-width:520px;background:var(--fill);border:1px solid var(--ink-15);border-radius:6px;color:var(--ink-100);
+font:14px var(--sans);padding:8px 12px;outline:none}.search input:focus{border-color:var(--accent)}
+.search .hint{font:12px var(--mono);color:var(--ink-50)}
+.count{font:12px var(--mono);color:var(--ink-50)}
+nav.toc{padding:22px 0 6px;font-size:14px}nav.toc ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 24px}
+nav.toc li a{color:var(--ink-70)}nav.toc li ol{padding-left:14px;margin-top:2px}nav.toc li ol a{color:var(--ink-50);font-size:13px}
+section.role{padding:26px 0 8px;border-top:1px solid var(--ink-08)}
+section.role>h2{margin:0 0 4px;font-weight:500;font-size:22px}section.role>p{margin:0 0 18px;color:var(--ink-70);max-width:720px}
+section.feature{padding:8px 0 18px}section.feature>h3{margin:0 0 2px;font-weight:500;font-size:16px}
+section.feature>p{margin:0 0 14px;color:var(--ink-50);font-size:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px}
+.card{background:var(--fill);border:1px solid var(--ink-15);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.card.hidden,section.hidden{display:none}
+.card img{display:block;width:100%;height:auto;aspect-ratio:1280/860;object-fit:cover;object-position:top;cursor:zoom-in;background:#000;border-bottom:1px solid var(--ink-15)}
+.card .cap{padding:12px 14px 14px}.card .cap b{display:block;font-weight:500;margin-bottom:3px}.card .cap span{color:var(--ink-70);font-size:13.5px}
+.card.term{grid-column:1/-1}
+.term .win{background:#08090b;border-bottom:1px solid var(--ink-15)}
+.term .bar{display:flex;gap:6px;padding:9px 12px;border-bottom:1px solid var(--ink-08)}.term .bar i{width:10px;height:10px;border-radius:50%;background:var(--ink-15)}
+.term pre{margin:0;padding:12px 14px;overflow-x:auto;font:12.5px/1.5 var(--mono);color:var(--ink-100);white-space:pre}
+.term pre .p{color:var(--accent)}.term pre .c{color:var(--ink-100);font-weight:500}
+.none{display:none;color:var(--ink-50);padding:30px 0}
+footer{border-top:1px solid var(--ink-15);margin-top:30px;padding:20px 0 40px;font-size:13px;color:var(--ink-50)}
+/* lightbox */
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;z-index:20;flex-direction:column;align-items:center;justify-content:center;touch-action:pan-y pinch-zoom}
+.lb.open{display:flex}.lb img{max-width:96vw;max-height:78vh;object-fit:contain;border:1px solid var(--ink-15);border-radius:4px}
+.lb .lcap{color:var(--ink-70);max-width:820px;padding:12px 20px 0;text-align:center;font-size:14px}.lb .lcap b{color:var(--ink-100);font-weight:500}
+.lb .pos{font:12px var(--mono);color:var(--ink-50);margin-top:6px}
+.lb button{position:absolute;background:var(--fill);border:1px solid var(--ink-15);color:var(--ink-100);border-radius:8px;min-width:44px;min-height:44px;font-size:20px;cursor:pointer}
+.lb .x{top:14px;right:14px}.lb .prev{left:14px;top:50%;transform:translateY(-50%)}.lb .next{right:14px;top:50%;transform:translateY(-50%)}
+@media (max-width:640px){h1{font-size:24px}.cards{grid-template-columns:1fr}.search .hint{display:none}.lb .prev,.lb .next{top:auto;bottom:16px;transform:none}}
+</style></head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand">FERRULE</div>
+  <h1>The guide</h1>
+  <p class="lede">Every screen and command, captured from a running Ferrule with fake providers, and what each one is for. Keys stay on your machine; the endpoint is for the house.</p>
+  <div class="links"><a href="../">the panel</a><a href="https://github.com/NakliTechie/ferrule">source</a><a href="https://github.com/NakliTechie/ferrule/releases/latest">download</a><a href="../llms.txt">llms.txt</a></div>
+</div></header>
+<div class="search"><div class="wrap"><input id="q" type="search" placeholder="Search screens and commands…" autocomplete="off" spellcheck="false"><span class="count" id="count"></span><span class="hint">/ to search · Esc to clear</span></div></div>
+<div class="wrap">
+<nav class="toc"><ol><li><a href="#you-at-the-panel">You, at the panel</a><ol><li><a href="#you-at-the-panel-first-run">First run</a></li><li><a href="#you-at-the-panel-your-household">Your household</a></li><li><a href="#you-at-the-panel-the-board">The board</a></li><li><a href="#you-at-the-panel-aliases-and-sources">Aliases and sources</a></li><li><a href="#you-at-the-panel-usage">Usage</a></li><li><a href="#you-at-the-panel-grants-and-staged-changes">Grants and staged changes</a></li></ol></li><li><a href="#someone-in-the-house">Someone in the house</a><ol><li><a href="#someone-in-the-house-using-the-endpoint">Using the endpoint</a></li></ol></li><li><a href="#you-in-the-terminal">You, in the terminal</a><ol><li><a href="#you-in-the-terminal-reading-the-state">Reading the state</a></li><li><a href="#you-in-the-terminal-minting-a-key">Minting a key</a></li></ol></li><li><a href="#a-coding-agent">A coding agent</a><ol><li><a href="#a-coding-agent-driving-ferrule-from-an-agent">Driving Ferrule from an agent</a></li></ol></li></ol></nav>
+<section class="role" id="you-at-the-panel"><h2>You, at the panel</h2><p>The control surface at http://localhost:8899 — the simple view for the household, the advanced view for you.</p><section class="feature" id="you-at-the-panel-first-run"><h3>First run</h3><p>What <code>ferrule serve</code> shows before anything is routed.</p><div class="cards"><figure class="card shot" data-title="The first screen" data-caption="A fresh start: nothing routed yet. The card at the top is the address and household key you hand out; the three numbered steps below are the whole setup." data-role="You, at the panel" data-feature="First run" data-search="you, at the panel first run the first screen a fresh start: nothing routed yet. the card at the top is the address and household key you hand out; the three numbered steps below are the whole setup. 01-first-run-home"><img src="screenshots/owner/01-first-run-home.png" alt="The first screen" loading="lazy"><div class="cap"><b>The first screen</b><span>A fresh start: nothing routed yet. The card at the top is the address and household key you hand out; the three numbered steps below are the whole setup.</span></div></figure><figure class="card shot" data-title="Add a source" data-caption="Pick a provider and paste its key. Ferrule tries the key against the provider before it keeps it — a dead key is never quietly stored." data-role="You, at the panel" data-feature="First run" data-search="you, at the panel first run add a source pick a provider and paste its key. ferrule tries the key against the provider before it keeps it — a dead key is never quietly stored. 02-first-run-add"><img src="screenshots/owner/02-first-run-add.png" alt="Add a source" loading="lazy"><div class="cap"><b>Add a source</b><span>Pick a provider and paste its key. Ferrule tries the key against the provider before it keeps it — a dead key is never quietly stored.</span></div></figure></div></section><section class="feature" id="you-at-the-panel-your-household"><h3>Your household</h3><p>The simple view: what to hand out, and what Ferrule found.</p><div class="cards"><figure class="card shot" data-title="Your household" data-caption="The simple view. Sharing is on, the address is the one to give people, and every source Ferrule found or was given is listed with its models." data-role="You, at the panel" data-feature="Your household" data-search="you, at the panel your household your household the simple view. sharing is on, the address is the one to give people, and every source ferrule found or was given is listed with its models. 03-home"><img src="screenshots/owner/03-home.png" alt="Your household" loading="lazy"><div class="cap"><b>Your household</b><span>The simple view. Sharing is on, the address is the one to give people, and every source Ferrule found or was given is listed with its models.</span></div></figure><figure class="card shot" data-title="The household key" data-caption="One key everyone can use, shown on request. Give people their own key only when you want the usage list to say who, or to cut one person off." data-role="You, at the panel" data-feature="Your household" data-search="you, at the panel your household the household key one key everyone can use, shown on request. give people their own key only when you want the usage list to say who, or to cut one person off. 04-home-key"><img src="screenshots/owner/04-home-key.png" alt="The household key" loading="lazy"><div class="cap"><b>The household key</b><span>One key everyone can use, shown on request. Give people their own key only when you want the usage list to say who, or to cut one person off.</span></div></figure><figure class="card shot" data-title="What each source serves" data-caption="Each source opens to its models. Local ones are on this machine; cloud ones go to a provider and are counted as such in Usage." data-role="You, at the panel" data-feature="Your household" data-search="you, at the panel your household what each source serves each source opens to its models. local ones are on this machine; cloud ones go to a provider and are counted as such in usage. 04b-home-models"><img src="screenshots/owner/04b-home-models.png" alt="What each source serves" loading="lazy"><div class="cap"><b>What each source serves</b><span>Each source opens to its models. Local ones are on this machine; cloud ones go to a provider and are counted as such in Usage.</span></div></figure><figure class="card shot" data-title="Where your keys live" data-caption="The statement, and the one knob that can contradict it, together: content logging is off, and this is where it would be turned on." data-role="You, at the panel" data-feature="Your household" data-search="you, at the panel your household where your keys live the statement, and the one knob that can contradict it, together: content logging is off, and this is where it would be turned on. 13-sovereignty"><img src="screenshots/owner/13-sovereignty.png" alt="Where your keys live" loading="lazy"><div class="cap"><b>Where your keys live</b><span>The statement, and the one knob that can contradict it, together: content logging is off, and this is where it would be turned on.</span></div></figure></div></section><section class="feature" id="you-at-the-panel-the-board"><h3>The board</h3><p>The advanced view: every model, and the sources behind them.</p><div class="cards"><figure class="card shot" data-title="The board" data-caption="The advanced view. Every model Ferrule can serve, with where it runs, what it can do, its context length and its cost per million tokens; filter by any of them." data-role="You, at the panel" data-feature="The board" data-search="you, at the panel the board the board the advanced view. every model ferrule can serve, with where it runs, what it can do, its context length and its cost per million tokens; filter by any of them. 05-board"><img src="screenshots/owner/05-board.png" alt="The board" loading="lazy"><div class="cap"><b>The board</b><span>The advanced view. Every model Ferrule can serve, with where it runs, what it can do, its context length and its cost per million tokens; filter by any of them.</span></div></figure><figure class="card shot" data-title="A failure that names itself" data-caption="The source the demo deliberately misconfigured. The red line is the one clear next action; under it, what the provider said, verbatim." data-role="You, at the panel" data-feature="The board" data-search="you, at the panel the board a failure that names itself the source the demo deliberately misconfigured. the red line is the one clear next action; under it, what the provider said, verbatim. 06-board-failed"><img src="screenshots/owner/06-board-failed.png" alt="A failure that names itself" loading="lazy"><div class="cap"><b>A failure that names itself</b><span>The source the demo deliberately misconfigured. The red line is the one clear next action; under it, what the provider said, verbatim.</span></div></figure></div></section><section class="feature" id="you-at-the-panel-aliases-and-sources"><h3>Aliases and sources</h3><p>Names apps can ask for, and how a source is added.</p><div class="cards"><figure class="card shot" data-title="Aliases" data-caption="A plain name for a ladder of models, tried in order. Apps ask for `fast`; you decide what fast means, and change it without telling anyone." data-role="You, at the panel" data-feature="Aliases and sources" data-search="you, at the panel aliases and sources aliases a plain name for a ladder of models, tried in order. apps ask for `fast`; you decide what fast means, and change it without telling anyone. 07-aliases"><img src="screenshots/owner/07-aliases.png" alt="Aliases" loading="lazy"><div class="cap"><b>Aliases</b><span>A plain name for a ladder of models, tried in order. Apps ask for <code>fast</code>; you decide what fast means, and change it without telling anyone.</span></div></figure><figure class="card shot" data-title="Add a source, in full" data-caption="The full form: provider, a name, the key, an optional test model for accounts whose tier excludes the usual ones, and a base URL for anything OpenAI-compatible." data-role="You, at the panel" data-feature="Aliases and sources" data-search="you, at the panel aliases and sources add a source, in full the full form: provider, a name, the key, an optional test model for accounts whose tier excludes the usual ones, and a base url for anything openai-compatible. 08-add"><img src="screenshots/owner/08-add.png" alt="Add a source, in full" loading="lazy"><div class="cap"><b>Add a source, in full</b><span>The full form: provider, a name, the key, an optional test model for accounts whose tier excludes the usual ones, and a base URL for anything OpenAI-compatible.</span></div></figure></div></section><section class="feature" id="you-at-the-panel-usage"><h3>Usage</h3><p>What it cost, where it went, what went wrong.</p><div class="cards"><figure class="card shot" data-title="Usage and egress" data-caption="Every request, by app and model — count, tokens, latency, cost — and above it the split that no cost dashboard shows: what stayed on this machine and what left." data-role="You, at the panel" data-feature="Usage" data-search="you, at the panel usage usage and egress every request, by app and model — count, tokens, latency, cost — and above it the split that no cost dashboard shows: what stayed on this machine and what left. 09-usage"><img src="screenshots/owner/09-usage.png" alt="Usage and egress" loading="lazy"><div class="cap"><b>Usage and egress</b><span>Every request, by app and model — count, tokens, latency, cost — and above it the split that no cost dashboard shows: what stayed on this machine and what left.</span></div></figure><figure class="card shot" data-title="What went wrong" data-caption="Failed requests with the provider&#x27;s full words. An app on the network gets a shorter version; the reason stays here, on the machine the key lives on." data-role="You, at the panel" data-feature="Usage" data-search="you, at the panel usage what went wrong failed requests with the provider&#x27;s full words. an app on the network gets a shorter version; the reason stays here, on the machine the key lives on. 10-usage-errors"><img src="screenshots/owner/10-usage-errors.png" alt="What went wrong" loading="lazy"><div class="cap"><b>What went wrong</b><span>Failed requests with the provider&#x27;s full words. An app on the network gets a shorter version; the reason stays here, on the machine the key lives on.</span></div></figure></div></section><section class="feature" id="you-at-the-panel-grants-and-staged-changes"><h3>Grants and staged changes</h3><p>Who holds a token; what an agent has proposed.</p><div class="cards"><figure class="card shot" data-title="Grants" data-caption="Every app token, who it was minted for, and when it was last used. Revoke one and the others keep working; the provider key is never the thing an app holds." data-role="You, at the panel" data-feature="Grants and staged changes" data-search="you, at the panel grants and staged changes grants every app token, who it was minted for, and when it was last used. revoke one and the others keep working; the provider key is never the thing an app holds. 11-grants"><img src="screenshots/owner/11-grants.png" alt="Grants" loading="lazy"><div class="cap"><b>Grants</b><span>Every app token, who it was minted for, and when it was last used. Revoke one and the others keep working; the provider key is never the thing an app holds.</span></div></figure><figure class="card shot" data-title="Staged by an agent" data-caption="A coding agent proposed an alias through the MCP face. Nothing has changed yet — it lands when you apply it here, and a provider key is never in the proposal." data-role="You, at the panel" data-feature="Grants and staged changes" data-search="you, at the panel grants and staged changes staged by an agent a coding agent proposed an alias through the mcp face. nothing has changed yet — it lands when you apply it here, and a provider key is never in the proposal. 12-staged"><img src="screenshots/owner/12-staged.png" alt="Staged by an agent" loading="lazy"><div class="cap"><b>Staged by an agent</b><span>A coding agent proposed an alias through the MCP face. Nothing has changed yet — it lands when you apply it here, and a provider key is never in the proposal.</span></div></figure></div></section></section><section class="role" id="someone-in-the-house"><h2>Someone in the house</h2><p>A person on the wifi with the address and a key. They never see the panel; their app talks to the endpoint.</p><section class="feature" id="someone-in-the-house-using-the-endpoint"><h3>Using the endpoint</h3><p>The OpenAI-compatible lane, with a Ferrule token.</p><div class="cards"><figure class="card term" data-search="someone in the house using the endpoint list the models anything that speaks openai works. the token is a ferrule key, never a provider key; `ferrule` in each entry says where the model runs. 01-models curl -s http://127.0.0.1:8892/v1/models -h &quot;authorization: bearer $ferrule_key&quot; | python3 -m json.tool | head -24"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s http://127.0.0.1:8892/v1/models -H &quot;Authorization: Bearer $FERRULE_KEY&quot; | python3 -m json.tool | head -24</span>
+{
+    &quot;data&quot;: [
+        {
+            &quot;ferrule&quot;: {
+                &quot;capabilities&quot;: [
+                    &quot;chat&quot;
+                ],
+                &quot;context_length&quot;: 8192,
+                &quot;source&quot;: &quot;ollama&quot;,
+                &quot;where&quot;: &quot;local&quot;
+            },
+            &quot;id&quot;: &quot;gemma3:12b&quot;,
+            &quot;object&quot;: &quot;model&quot;,
+            &quot;owned_by&quot;: &quot;ollama&quot;
+        },
+        {
+            &quot;ferrule&quot;: {
+                &quot;capabilities&quot;: [
+                    &quot;chat&quot;,
+                    &quot;tools&quot;
+                ],
+                &quot;context_length&quot;: 131072,
+                &quot;source&quot;: &quot;ollama&quot;,
+                &quot;where&quot;: &quot;local&quot;
+</pre></div><div class="cap"><b>List the models</b><span>Anything that speaks OpenAI works. The token is a Ferrule key, never a provider key; <code>ferrule</code> in each entry says where the model runs.</span></div></figure><figure class="card term" data-search="someone in the house using the endpoint a chat completion ask for `fast` and the first reachable rung serves it — here a local model, so the request never left the machine. 02-chat curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -h &quot;authorization: bearer $ferrule_key&quot; -h &#x27;content-type: application/json&#x27; \
+  -d &#x27;{&quot;model&quot;:&quot;fast&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;say hello in five words.&quot;}]}&#x27; | python3 -m json.tool"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -H &quot;Authorization: Bearer $FERRULE_KEY&quot; -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{&quot;model&quot;:&quot;fast&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;Say hello in five words.&quot;}]}&#x27; | python3 -m json.tool</span>
+{
+    &quot;choices&quot;: [
+        {
+            &quot;finish_reason&quot;: &quot;stop&quot;,
+            &quot;index&quot;: 0,
+            &quot;message&quot;: {
+                &quot;content&quot;: &quot;ferrule routed this&quot;,
+                &quot;role&quot;: &quot;assistant&quot;
+            }
+        }
+    ],
+    &quot;id&quot;: &quot;chatcmpl-mock&quot;,
+    &quot;model&quot;: &quot;qwen3:8b&quot;,
+    &quot;object&quot;: &quot;chat.completion&quot;,
+    &quot;usage&quot;: {
+        &quot;completion_tokens&quot;: 3,
+        &quot;prompt_tokens&quot;: 11,
+        &quot;total_tokens&quot;: 14
+    }
+}
+</pre></div><div class="cap"><b>A chat completion</b><span>Ask for <code>fast</code> and the first reachable rung serves it — here a local model, so the request never left the machine.</span></div></figure><figure class="card term" data-search="someone in the house using the endpoint without a token no token, 401. inference is served to the network only with a valid key; the panel, the vault and the ledger answer only this machine. 03-no-token curl -s -i http://127.0.0.1:8892/v1/models | head -12"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s -i http://127.0.0.1:8892/v1/models | head -12</span>
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+Date: Mon, 21 Sep 2026 16:27:53 GMT
+Content-Length: 134
+
+{&quot;error&quot;:{&quot;code&quot;:401,&quot;message&quot;:&quot;missing Authorization header — pass a Ferrule app token as a Bearer token&quot;,&quot;type&quot;:&quot;ferrule_error&quot;}}
+</pre></div><div class="cap"><b>Without a token</b><span>No token, 401. Inference is served to the network only with a valid key; the panel, the vault and the ledger answer only this machine.</span></div></figure><figure class="card term" data-search="someone in the house using the endpoint when a source is down the refusal says which source failed and why, so the person can act. the full provider text is on the usage screen. 04-failed-request curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -h &quot;authorization: bearer $ferrule_key&quot; -h &#x27;content-type: application/json&#x27; \
+  -d &#x27;{&quot;model&quot;:&quot;groq-typo/llama-3.3-70b-versatile&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;hi&quot;}]}&#x27; | python3 -m json.tool"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s http://127.0.0.1:8892/v1/chat/completions \
+  -H &quot;Authorization: Bearer $FERRULE_KEY&quot; -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{&quot;model&quot;:&quot;groq-typo/llama-3.3-70b-versatile&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;hi&quot;}]}&#x27; | python3 -m json.tool</span>
+{
+    &quot;error&quot;: {
+        &quot;code&quot;: 404,
+        &quot;message&quot;: &quot;no model, alias, or remap named \&quot;groq-typo/llama-3.3-70b-versatile\&quot;: source groq-typo is failed, not live: router: source not live&quot;,
+        &quot;type&quot;: &quot;ferrule_error&quot;
+    }
+}
+</pre></div><div class="cap"><b>When a source is down</b><span>The refusal says which source failed and why, so the person can act. The full provider text is on the Usage screen.</span></div></figure></div></section></section><section class="role" id="you-in-the-terminal"><h2>You, in the terminal</h2><p>Every panel operation is also a verb. The CLI reads and writes the same state the daemon serves.</p><section class="feature" id="you-in-the-terminal-reading-the-state"><h3>Reading the state</h3><p>Status, models, aliases, usage.</p><div class="cards"><figure class="card term" data-search="you, in the terminal reading the state the verbs every command, one line each. exit codes mean something: 0 it worked, 1 it did not and the reason says why, 2 the command was wrong. 01-help ferrule --help"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule --help</span>
+ferrule — a local key vault and model router
+
+Verbs:
+  status   the whole situation in one read (--json for an agent)
+  serve    start the daemon (endpoints + control surface)
+  open     make sure it is running, then show the panel
+  startup  start Ferrule when you log in (on | off)
+  add      add a source (paste a key, or adopt a detected runtime)
+  ls       list sources / models / aliases
+  refresh  re-check a stored source, using the key it already holds
+  rm       remove a source, its models, and its key
+  alias    create, edit, or remove an alias
+  remap    serve a hardcoded model id from a model of your choosing
+  key      mint or revoke an app token
+  usage    per-app and per-model spend, volume, and egress
+  export   write a portable encrypted configuration file
+  import   read a portable encrypted configuration file
+  version  print the version
+
+Exit codes: 0 the thing worked · 1 it did not, and the reason says why · 2 the
+command was wrong.
+</pre></div><div class="cap"><b>The verbs</b><span>Every command, one line each. Exit codes mean something: 0 it worked, 1 it did not and the reason says why, 2 the command was wrong.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state the whole situation in one read sources and their state, what is servable, the aliases, tokens, last-day egress, and a `next:` list of anything that needs you. `--json` for an agent. 02-status ferrule status"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule status</span>
+ferrule dev · http://127.0.0.1:8892/v1
+
+SOURCE     WHERE  LANE    STATUS  DETAIL
+ollama     local  tokens  live    
+anthropic  cloud  tokens  live    
+deepseek   cloud  tokens  live    
+groq       cloud  tokens  live    
+groq-typo  cloud  tokens  failed  unreachable · could not reach http://127.0.0.1:1/v1/models: Get &quot;http://127.0.0.1:1/v1/models&quot;: dial tcp…
+
+13 model(s) servable — 5 local, 8 cloud
+  chat 12 · embeddings 1 · reasoning 1 · tools 10 · vision 5
+
+ALIAS   RUNGS  SERVING
+cheap   2      ollama/gemma3:12b
+fast    2      ollama/qwen3:8b
+smart   2      anthropic/claude-opus-5
+vision  2      ollama/llava:13b
+
+3 app token(s), 3 live · last 24h: 78 local, 42 off-machine
+vault encrypted file store (age) · catalog 2026-09-03 (stale)
+
+next:
+  groq-typo — could not reach http://127.0.0.1:1/v1/models: Get &quot;http://127.0.0.1:1/v1/models&quot;: dial tcp 127.0.0.1:1: connect: connection refused  ·  Check the base URL, and that the service is running and listening.
+  The capability catalog has not refreshed in over a day. Costs and context lengths may be behind.
+</pre></div><div class="cap"><b>The whole situation in one read</b><span>Sources and their state, what is servable, the aliases, tokens, last-day egress, and a <code>next:</code> list of anything that needs you. <code>--json</code> for an agent.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state every model the board, as a table: source, where it runs, capabilities, context, cost. 03-ls-models ferrule ls models"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule ls models</span>
+MODEL                    SOURCE     WHERE  CAPABILITIES          CONTEXT  IN $/M  OUT $/M
+claude-haiku-4-5         anthropic  cloud  chat,vision,tools     200000   0.80    4.00
+claude-opus-5            anthropic  cloud  chat,vision,tools     200000   15.00   75.00
+claude-sonnet-5          anthropic  cloud  chat,vision,tools     200000   3.00    15.00
+deepseek-chat            deepseek   cloud  chat,tools            64000    0.27    1.10
+deepseek-reasoner        deepseek   cloud  chat,reasoning,tools  64000    0.55    2.19
+gemma3:12b               ollama     local  chat                  8192     —       —
+llama-3.1-8b-instruct    ollama     local  chat,tools            131072   0.05    0.08
+llama-3.3-70b-versatile  groq       cloud  chat,tools            131072   0.59    0.79
+llama-4-scout-17b        groq       cloud  chat,vision,tools     131072   0.11    0.34
+llava:13b                ollama     local  chat,vision           4096     —       —
+mixtral-8x7b-32768       groq       cloud  chat,tools            32768    0.24    0.24
+nomic-embed-text         ollama     local  embeddings            8192     —       —
+qwen3:8b                 ollama     local  chat,tools            32768    —       —
+</pre></div><div class="cap"><b>Every model</b><span>The board, as a table: source, where it runs, capabilities, context, cost.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state only what runs here `--local` narrows to models on this machine — the ones whose requests never leave it. 04-ls-local ferrule ls models --local"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule ls models --local</span>
+MODEL                  SOURCE  WHERE  CAPABILITIES  CONTEXT  IN $/M  OUT $/M
+gemma3:12b             ollama  local  chat          8192     —       —
+llama-3.1-8b-instruct  ollama  local  chat,tools    131072   0.05    0.08
+llava:13b              ollama  local  chat,vision   4096     —       —
+nomic-embed-text       ollama  local  embeddings    8192     —       —
+qwen3:8b               ollama  local  chat,tools    32768    —       —
+</pre></div><div class="cap"><b>Only what runs here</b><span><code>--local</code> narrows to models on this machine — the ones whose requests never leave it.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state the ladders each alias and its rungs in order. `ferrule alias &lt;name&gt; &lt;src&gt;/&lt;model&gt; …` sets one. 05-alias ferrule alias"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule alias</span>
+ALIAS   LADDER
+cheap   ollama/gemma3:12b → deepseek/deepseek-chat
+fast    ollama/qwen3:8b → groq/llama-3.3-70b-versatile
+smart   anthropic/claude-opus-5 → deepseek/deepseek-reasoner
+vision  ollama/llava:13b → anthropic/claude-sonnet-5
+</pre></div><div class="cap"><b>The ladders</b><span>Each alias and its rungs in order. <code>ferrule alias &amp;lt;name&amp;gt; &amp;lt;src&amp;gt;/&amp;lt;model&amp;gt; …</code> sets one.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state spend by app and model the same ledger the panel reads, grouped for a terminal. 06-usage ferrule usage"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule usage</span>
+GROUP                             REQUESTS  ERRORS  TOKENS  LATENCY  COST
+zed / claude-opus-5               24        0       336     0ms      $0.0094
+research-agent / claude-opus-5    18        0       252     0ms      $0.0070
+zed / qwen3:8b                    40        0       560     0ms      $0.0000
+transcribe.sh / nomic-embed-text  24        0       336     0ms      $0.0000
+research-agent / gemma3:12b       14        0       196     0ms      $0.0000
+Total                             120                                $0.0164
+</pre></div><div class="cap"><b>Spend by app and model</b><span>The same ledger the panel reads, grouped for a terminal.</span></div></figure><figure class="card term" data-search="you, in the terminal reading the state what left the machine requests and bytes, local against off-machine, and the share. 07-usage-egress ferrule usage --egress"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule usage --egress</span>
+WHERE        REQUESTS  BYTES
+local        78        24854
+off-machine  42        13566
+
+off-machine share  35%
+</pre></div><div class="cap"><b>What left the machine</b><span>Requests and bytes, local against off-machine, and the share.</span></div></figure></div></section><section class="feature" id="you-in-the-terminal-minting-a-key"><h3>Minting a key</h3><p>One token per person or app.</p><div class="cards"><figure class="card term" data-search="you, in the terminal minting a key mint a token for one person shown once. the app gets the address and this key; you can revoke it later without touching anyone else&#x27;s. 08-key ferrule key kitchen-ipad"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">ferrule key kitchen-ipad</span>
+Minted app token for &quot;kitchen-ipad&quot;. This is shown once:
+
+  frl_fKSbN3RRarBseWtNHBx404j8_K4RnMqc
+
+Point the app at http://127.0.0.1:8892/v1 with this as its API key.
+</pre></div><div class="cap"><b>Mint a token for one person</b><span>Shown once. The app gets the address and this key; you can revoke it later without touching anyone else&#x27;s.</span></div></figure></div></section></section><section class="role" id="a-coding-agent"><h2>A coding agent</h2><p>The agent face: <code>llms.txt</code> and an MCP manifest served by the daemon. Proposals stage; you apply.</p><section class="feature" id="a-coding-agent-driving-ferrule-from-an-agent"><h3>Driving Ferrule from an agent</h3><p>Read the surface, then propose.</p><div class="cards"><figure class="card term" data-search="a coding agent driving ferrule from an agent the docs&#x27; agent face the running daemon serves `llms.txt`: what ferrule is and how to drive it, so an agent pointed at a live ferrule gets the surface without the repo. 01-llms-txt curl -s http://127.0.0.1:8892/llms.txt | head -30"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s http://127.0.0.1:8892/llms.txt | head -30</span>
+# Ferrule
+
+&gt; A local key vault for LLM provider keys, with an OpenAI-compatible router in front of
+&gt; it. One Go binary. Keys are encrypted on the user&#x27;s own disk; nothing is hosted.
+
+Ferrule is a **key vault first, a router second**. A person pastes a provider key once;
+Ferrule becomes the single encrypted local home for it. The unified endpoint, the model
+board, the alias ladders, and the spend/egress views all fall out of that.
+
+If you are an agent driving Ferrule, read this file and then call `brief`. Do not explore.
+
+## Two things it does that alternatives do not
+
+- **Zero-config discovery.** No config file. It scans localhost for running runtimes
+  (Ollama, LM Studio, llama.cpp) and adopts them; a cloud provider is *paste a key*.
+- **Egress visibility.** A local, metadata-only ledger of what actually left the machine,
+  per app and per model — classified from the address the connection was made to.
+
+## The three faces (they do not overlap)
+
+| Face | Path | Auth |
+|---|---|---|
+| Inference — raw tokens | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models` | Ferrule app token, Bearer |
+| Inference — media passthrough | `/p/&lt;source&gt;/…`, provider&#x27;s native shape, bytes unaltered | Ferrule app token |
+| Control | `/api/op/&lt;name&gt;`, `/mcp` | localhost + a per-run control token |
+
+The control face is **not** an inference path. Your own inference goes through the
+OpenAI-compatible endpoint like any other client.
+
+## Driving inference
+</pre></div><div class="cap"><b>The docs&#x27; agent face</b><span>The running daemon serves <code>llms.txt</code>: what Ferrule is and how to drive it, so an agent pointed at a live Ferrule gets the surface without the repo.</span></div></figure><figure class="card term" data-search="a coding agent driving ferrule from an agent the mcp manifest every control operation, generated from the same command bus the panel and the cli use. read ops answer; mutating ops stage. 02-mcp-manifest curl -s http://127.0.0.1:8892/mcp | python3 -c &#x27;import json,sys; m=json.load(sys.stdin); print(m[&quot;instructions&quot;]); print(); [print(&quot;  &quot;+t[&quot;name&quot;].ljust(18), t[&quot;description&quot;][:80]) for t in m[&quot;tools&quot;]]&#x27;"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s http://127.0.0.1:8892/mcp | python3 -c &#x27;import json,sys; m=json.load(sys.stdin); print(m[&quot;instructions&quot;]); print(); [print(&quot;  &quot;+t[&quot;name&quot;].ljust(18), t[&quot;description&quot;][:80]) for t in m[&quot;tools&quot;]]&#x27;</span>
+Ferrule&#x27;s control plane. Read ops answer immediately. Mutating ops are staged and land only when the person applies them. Person-only ops cannot be delegated. Inference does not go through here: point your client at the OpenAI-compatible endpoint with a Ferrule app token.
+
+  add_source         Add a source: paste a key for a known provider, or a key and base URL for an unk
+  brief              The whole situation in one bounded read: sources and why any are dark, what the 
+  catalog_refresh    Refresh the capability catalog from its maintained source now.
+  detect_local       Scan localhost for known runtimes and adopt what is running.
+  egress_summary     What left the machine, and what stayed on it.
+  export_config      Write a portable encrypted configuration file, sealed under a passphrase so the 
+  forget_content     Delete everything the content log holds.
+  get_alias          Read one alias and its fallback ladder.
+  household_key      Read the key the whole household shares. Person-only: it returns a live credenti
+  import_config      Read a portable encrypted configuration file and merge it into local state — sou
+  list_aliases       List every alias and its fallback ladder.
+  list_grants        List app tokens and what each one spent.
+  list_models        List every model on every live source, with capability, context, and cost.
+  list_remaps        List every model-id remap.
+  list_sources       List every source, live and failed, with its reason.
+  list_staged        List control operations staged for a person to apply.
+  mint_grant         Mint an app token. Person-only: it returns a credential, shown once.
+  read_content       Read the local content log, when content logging is on. Person-only: it returns 
+  recent_errors      The requests that failed, newest first, with what the provider actually said.
+  refresh_source     Re-probe a source and re-classify its models.
+  regenerate_household_key Retire the household key and issue a new one. Every device using the old one sto
+  remove_alias       Delete an alias.
+  remove_remap       Delete a remap.
+  remove_source      Remove a source, its models, and its stored key.
+  revoke_grant       Revoke an app token.
+  set_alias          Point an alias at an ordered ladder of models.
+  set_remap          Serve a hardcoded model id from a model of your choosing.
+  set_setting        Change a Ferrule setting.
+  set_share_address  Choose which of this machine&#x27;s addresses the household is given.
+  set_startup        Register or unregister the daemon with the login manager. Person-only: it writes
+  status             Ferrule&#x27;s own state: version, config dir, vault backend, catalog date.
+  usage_summary      Spend, volume, latency, and errors, grouped as you ask.
+</pre></div><div class="cap"><b>The MCP manifest</b><span>Every control operation, generated from the same command bus the panel and the CLI use. Read ops answer; mutating ops stage.</span></div></figure><figure class="card term" data-search="a coding agent driving ferrule from an agent a staged proposal the agent asked for an alias. it is staged, not applied; the person lands it from the panel. a key argument would have been withheld from the payload. 03-mcp-stage curl -s -x post http://127.0.0.1:8892/mcp -h &#x27;content-type: application/json&#x27; -d &#x27;{"><div class="win"><div class="bar"><i></i><i></i><i></i></div><pre><span class="p">$</span> <span class="c">curl -s -X POST http://127.0.0.1:8892/mcp -H &#x27;Content-Type: application/json&#x27; -d &#x27;{</span>
+  &quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/call&quot;,
+  &quot;params&quot;:{&quot;name&quot;:&quot;set_alias&quot;,&quot;arguments&quot;:{&quot;name&quot;:&quot;everyday&quot;,&quot;ladder&quot;:[&quot;ollama/qwen3:8b&quot;,&quot;deepseek/deepseek-chat&quot;]}}
+}&#x27; | python3 -c &#x27;import json,sys; print(json.load(sys.stdin)[&quot;result&quot;][&quot;content&quot;][0][&quot;text&quot;])&#x27;
+{
+  &quot;args&quot;: {
+    &quot;ladder&quot;: [
+      &quot;ollama/qwen3:8b&quot;,
+      &quot;deepseek/deepseek-chat&quot;
+    ],
+    &quot;name&quot;: &quot;everyday&quot;
+  },
+  &quot;dropped_undeclared&quot;: null,
+  &quot;id&quot;: &quot;76b5abea04e4&quot;,
+  &quot;message&quot;: &quot;Staged set_alias — apply it in Ferrule to land the change.&quot;,
+  &quot;op&quot;: &quot;set_alias&quot;,
+  &quot;staged&quot;: true,
+  &quot;withheld&quot;: null
+}
+</pre></div><div class="cap"><b>A staged proposal</b><span>The agent asked for an alias. It is staged, not applied; the person lands it from the panel. A key argument would have been withheld from the payload.</span></div></figure></div></section></section>
+<p class="none" id="none">Nothing matches.</p>
+<footer>29 captures, regenerated by <code>docs/regenerate.sh</code> from the build that ships. Screens open full-size: ← → step, ↑ ↓ jump sections, Esc closes.</footer>
+</div>
+<div class="lb" id="lb" role="dialog" aria-label="Screenshot"><button class="x" aria-label="Close">×</button><button class="prev" aria-label="Previous">‹</button><button class="next" aria-label="Next">›</button><img alt=""><div class="lcap"></div><div class="pos"></div></div>
+<script>
+(function(){
+  const q = document.getElementById('q'), cards = [...document.querySelectorAll('.card')],
+        feats = [...document.querySelectorAll('section.feature')], roles = [...document.querySelectorAll('section.role')],
+        none = document.getElementById('none'), count = document.getElementById('count');
+  function filter(){
+    const v = q.value.trim().toLowerCase(); let n = 0;
+    for (const c of cards){ const on = !v || c.dataset.search.includes(v); c.classList.toggle('hidden', !on); if (on) n++; }
+    for (const f of feats) f.classList.toggle('hidden', ![...f.querySelectorAll('.card')].some(c => !c.classList.contains('hidden')));
+    for (const r of roles) r.classList.toggle('hidden', ![...r.querySelectorAll('.card')].some(c => !c.classList.contains('hidden')));
+    none.style.display = n ? 'none' : 'block'; count.textContent = v ? n + ' of ' + cards.length : cards.length + ' captures';
+  }
+  q.addEventListener('input', filter); filter();
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement !== q && !lb.classList.contains('open')) { e.preventDefault(); q.focus(); }
+    if (e.key === 'Escape' && document.activeElement === q) { q.value = ''; filter(); q.blur(); }
+  });
+  // lightbox
+  const lb = document.getElementById('lb'), li = lb.querySelector('img'), lcap = lb.querySelector('.lcap'), pos = lb.querySelector('.pos');
+  let cur = -1, scrollY = 0;
+  const shots = () => cards.filter(c => c.classList.contains('shot') && !c.classList.contains('hidden'));
+  function show(i){
+    const list = shots(); if (!list.length) return; cur = (i + list.length) % list.length; const c = list[cur];
+    li.src = c.querySelector('img').src; lcap.innerHTML = '<b>' + c.dataset.title + '</b><br>' + c.dataset.caption;
+    pos.textContent = c.dataset.role + ' · ' + c.dataset.feature + ' — ' + (cur + 1) + '/' + list.length;
+    if (!lb.classList.contains('open')) { scrollY = window.scrollY; lb.classList.add('open'); document.body.style.overflow = 'hidden'; }
+  }
+  function close(){ lb.classList.remove('open'); document.body.style.overflow = ''; window.scrollTo(0, scrollY); }
+  function jump(dir){
+    const list = shots(); const f = list[cur].dataset.feature; let i = cur;
+    if (dir > 0) { while (i < list.length && list[i].dataset.feature === f) i++; if (i >= list.length) i = 0; }
+    else { while (i > 0 && list[i - 1].dataset.feature === f) i--; i--; if (i < 0) i = list.length - 1; const g = list[i].dataset.feature; while (i > 0 && list[i - 1].dataset.feature === g) i--; }
+    show(i);
+  }
+  for (const c of cards) if (c.classList.contains('shot')) c.querySelector('img').addEventListener('click', () => show(shots().indexOf(c)));
+  lb.querySelector('.x').onclick = close; lb.querySelector('.prev').onclick = () => show(cur - 1); lb.querySelector('.next').onclick = () => show(cur + 1);
+  lb.addEventListener('click', e => { if (e.target === lb) close(); });
+  document.addEventListener('keydown', e => {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') show(cur - 1); else if (e.key === 'ArrowRight') show(cur + 1);
+    else if (e.key === 'ArrowUp') jump(-1); else if (e.key === 'ArrowDown') jump(1);
+  });
+  let tx = 0, ty = 0;
+  lb.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+  lb.addEventListener('touchend', e => {
+    if (e.changedTouches.length !== 1 || e.touches.length) return;
+    const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) show(cur + (dx < 0 ? 1 : -1)); else if (dy > 80) close();
+  }, { passive: true });
+})();
+</script>
+</body></html>

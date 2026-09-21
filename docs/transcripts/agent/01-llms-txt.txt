@@ -1,0 +1,31 @@
+$ curl -s http://127.0.0.1:8892/llms.txt | head -30
+# Ferrule
+
+> A local key vault for LLM provider keys, with an OpenAI-compatible router in front of
+> it. One Go binary. Keys are encrypted on the user's own disk; nothing is hosted.
+
+Ferrule is a **key vault first, a router second**. A person pastes a provider key once;
+Ferrule becomes the single encrypted local home for it. The unified endpoint, the model
+board, the alias ladders, and the spend/egress views all fall out of that.
+
+If you are an agent driving Ferrule, read this file and then call `brief`. Do not explore.
+
+## Two things it does that alternatives do not
+
+- **Zero-config discovery.** No config file. It scans localhost for running runtimes
+  (Ollama, LM Studio, llama.cpp) and adopts them; a cloud provider is *paste a key*.
+- **Egress visibility.** A local, metadata-only ledger of what actually left the machine,
+  per app and per model — classified from the address the connection was made to.
+
+## The three faces (they do not overlap)
+
+| Face | Path | Auth |
+|---|---|---|
+| Inference — raw tokens | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models` | Ferrule app token, Bearer |
+| Inference — media passthrough | `/p/<source>/…`, provider's native shape, bytes unaltered | Ferrule app token |
+| Control | `/api/op/<name>`, `/mcp` | localhost + a per-run control token |
+
+The control face is **not** an inference path. Your own inference goes through the
+OpenAI-compatible endpoint like any other client.
+
+## Driving inference

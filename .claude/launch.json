@@ -6,6 +6,12 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "FERRULE_CONFIG_DIR=$PWD/.ferrule-dev go run ./cmd/ferrule serve --port 8899"],
       "port": 8899
+    },
+    {
+      "name": "guide",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8202", "--bind", "127.0.0.1", "--directory", "docs"],
+      "port": 8202
     }
   ]
 }

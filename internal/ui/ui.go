@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 
+	ferrule "github.com/NakliTechie/ferrule"
 	"github.com/NakliTechie/ferrule/internal/i18n"
 	"github.com/NakliTechie/ferrule/internal/provider"
 )
@@ -31,6 +32,16 @@ func Mount(mux *http.ServeMux, controlToken string) {
 	}
 	files := http.FileServer(http.FS(sub))
 
+	guide, err := fs.Sub(ferrule.Guide, "docs")
+	if err != nil {
+		panic(err)
+	}
+	// The guide, as published: every screen and command with what it is for. Same files
+	// GitHub Pages serves, so a person offline has the whole of it.
+	mux.Handle("/guide/", cache(http.StripPrefix("/guide/", http.FileServer(http.FS(guide)))))
+	mux.HandleFunc("/guide", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/guide/", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("/llms.txt", serveLLMs)
 	mux.HandleFunc("/robots.txt", serveRobots)
 	mux.HandleFunc("/ui/strings.json", serveStrings)
