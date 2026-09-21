@@ -18,27 +18,18 @@
 
 ![The household view — the address and key you hand out, and where the models come from](marketing/hero-x.png)
 
----
-
-## Get going
-
-**1. Install**
+## Install
 
 | | |
 |---|---|
-| **macOS** | Download **[Ferrule-macos.zip](../../releases/latest)**, unzip, drag `Ferrule.app` to Applications, double-click. First open needs right-click → Open (it is not notarised). |
-| **Linux** | `curl -fsSL https://raw.githubusercontent.com/NakliTechie/ferrule/main/install.sh \| sh` |
-| **Windows** | Download `ferrule-windows-amd64.exe` from the [latest release](../../releases/latest) and run it. |
+| **macOS** | `brew install --cask NakliTechie/tap/ferrule` — or download **[Ferrule-macos.zip](../../releases/latest)** and drag it to Applications. Not notarised: first open is right-click → Open. |
+| **CLI** (macOS, Linux) | `brew install NakliTechie/tap/ferrule` — or `curl -fsSL https://raw.githubusercontent.com/NakliTechie/ferrule/main/install.sh \| sh` |
+| **Windows** | `ferrule-windows-amd64.exe` from the [latest release](../../releases/latest). |
 | **Go** | `go install github.com/NakliTechie/ferrule/cmd/ferrule@latest` |
 
-**2. Start it** — `ferrule serve`, or just open the app. The panel is at
-**<http://localhost:8899>**.
-
-**3. Give it something to route.** If Ollama or LM Studio is running, Ferrule has already
-found it. Otherwise click **Add a provider** and paste a key.
-
-**4. Point an app at it.** The panel shows an address and a household key. Anything that
-speaks OpenAI takes them:
+Then `ferrule serve` (or open the app). The panel is at **<http://localhost:8899>**. If
+Ollama or LM Studio is running, Ferrule has already found it; otherwise **Add a provider**
+and paste a key. Point anything that speaks OpenAI at it:
 
 ```python
 from openai import OpenAI
@@ -46,105 +37,40 @@ c = OpenAI(base_url="http://localhost:8899/v1", api_key="frl_…")  # never a pr
 c.chat.completions.create(model="everyday", messages=[...])
 ```
 
-That is the whole setup. **No config file, no account, no restart.**
-
-> **No keys to hand?** `make demo` stands up a whole Ferrule with fake providers and
-> replayed traffic, so you can click around before deciding. Nothing you own is involved.
-
----
+No config file, no account, no restart. No keys to hand? `make demo` runs a whole Ferrule
+on fake providers.
 
 ## Why
 
 Your provider key is in six `.env` files and you are not sure which. Rotating it means
-finding all of them. You cannot answer *what did this key spend last month*, or *did that
-prompt leave my machine*, because nothing was ever in a position to know.
+finding all of them. Nothing can tell you what a key spent last month or whether a prompt
+left your machine, because nothing was in a position to know.
 
-Ferrule is the one place the key lives. Everything that wants it gets a Ferrule token
-instead — revoke one and the rest keep working — and because every request goes through
-one door, that door can tell you what it cost and where it went.
+Ferrule is the one place the key lives. Apps get a Ferrule token instead — revoke one, the
+rest keep working — and because every request goes through one door, that door records
+what it cost and where it went. It scans localhost and adopts running runtimes; adding a
+cloud provider is *paste a key*, not *edit a file*. A dead key is never quietly stored, and
+a refusal carries the provider's own words.
 
-## What it is
-
-Ferrule is a **key vault first, a model router second**. Paste a provider key once and
-Ferrule becomes the one encrypted local place it lives. Apps get a Ferrule token instead —
-revoke one, the rest keep working. The unified endpoint, the model board, the alias
-ladders and the spend and egress views all fall out of the vault.
-
-One static Go binary. No account, no telemetry, no server. Ferrule makes exactly one
-request on its own behalf — a background fetch of the public model-capability catalog,
-carrying nothing about you, which you can turn off.
-
-*A ferrule is the fitting that binds many strands into a single clean termination.*
-
-### What it optimises for, in order
-
-1. **Your keys stay yours.** Encrypted on your disk, never transmitted anywhere but the
-   provider you gave them for, never written in plaintext to a database, a log or a ledger.
-2. **Failures are loud and specific.** A dead key is never quietly stored. Every refusal
-   carries the provider's own words and one clear next action.
-3. **You can see what left.** Every request is recorded before it is made — app, model,
-   cost, and whether it went off the machine. A request Ferrule cannot record, it refuses.
-4. **It works without you.** No config file, no restart, no account. Local runtimes are
-   adopted on their own.
-5. **One binary.** No runtime, no database server, nothing to keep running but Ferrule.
-
-Where these conflict, the earlier one wins.
-
-### The two that are hard to get elsewhere
-
-**Probe, don't declare.** Comparable tools ask you to hand-write a config listing models
-and endpoints. Ferrule scans localhost for running runtimes and adopts them, and adding a
-cloud provider is *paste a key*, not *edit a file*. A refusal names itself precisely: a 402
-from DeepSeek means the account is empty and the key is fine; a 404 from NVIDIA means that
-one model is outside your tier and the others may work.
-
-**Egress visibility.** Cost dashboards are everywhere; a data-egress dashboard is not.
-Ferrule knows which requests stayed on the machine and which went to a provider, so it
-shows *where your prompts went*, not only what they cost.
-
-The panel answers in **0.11 s** cold. A routable model takes as long as the runtime takes
-to serve one real request — about 5 s for a local model already pulled.
-
-### Use something else if
-
-**[LiteLLM](https://github.com/BerriAI/litellm)** if you want a gateway for a team or an
-organisation — hosted, enterprise features, a hundred-plus providers, and a config file
-you version-control. Ferrule is deliberately single-user and local, with a curated seed
-set, and there is no config file to check in.
-
-**[Ollama](https://ollama.com)** if you want to *run* models. Ferrule does not run
-anything; it routes to Ollama and to the cloud through one endpoint, and it finds your
-Ollama without being told.
-
-**A `.env` file** if you have one key and one project. Ferrule earns its place at the
-point where you have several of each.
-
----
+**Use [LiteLLM](https://github.com/BerriAI/litellm)** for a team gateway with a config file
+you version-control. **Use [Ollama](https://ollama.com)** to run models — Ferrule does not
+run anything, it routes to Ollama and the cloud through one endpoint. **Use a `.env`** if
+you have one key and one project.
 
 ## Share it with the house
 
-Sharing is on out of the box, with a switch in the panel. One **household key** works for
-everybody from the first start; give people their own with `ferrule key <name>` when you
-want the usage list to say who, or to cut one person off without cutting off the house.
+Sharing is on out of the box. One **household key** works for everyone; `ferrule key <name>`
+gives a person their own, so usage says who and you can cut one off without the rest.
 
-**Inference** is served to your network, and only with a valid Ferrule token — no token,
-401. **Everything else** — the panel, the vault, minting tokens, the ledger, config
-export, `/mcp` — answers only this machine, enforced on the peer address of the accepted
-TCP connection rather than a header, so a caller cannot claim to be local. Your provider
-keys never cross the network; what does is a token you can revoke.
+Inference is served to the network, only with a valid token. Everything else — the panel,
+the vault, tokens, the ledger, `/mcp` — answers only this machine, enforced on the peer
+address of the TCP connection, not a header. Provider keys never cross the network.
 
-Turn sharing off and the network gets 403 on the next request, no restart.
-`ferrule serve --host 127.0.0.1` closes the port outright and no setting reopens it.
+Tokens cross your LAN in the clear. On your own wifi that is the trust boundary every
+other device already sits behind; for airtight, run it on a [Tailscale](https://tailscale.com)
+address. `ferrule serve --host 127.0.0.1` closes the port outright.
 
-> **One thing to know:** tokens cross your LAN in the clear. On your own wifi that is the
-> same trust boundary every other device already sits behind — but a token spends money,
-> so mint one per person rather than sharing. For something airtight, run Ferrule on a
-> [Tailscale](https://tailscale.com) address instead of your LAN.
-
-**Start it at login** with the switch in the panel, or `ferrule startup on` — a launchd
-agent on macOS, a systemd user unit on Linux, a Task Scheduler logon task on Windows.
-
-## Every command
+## Commands
 
 ```
 ferrule serve                     # the daemon: endpoints + the control panel
@@ -162,83 +88,32 @@ ferrule startup on                # start Ferrule when you log in
 ferrule export / import           # a portable encrypted configuration
 ```
 
-`model` may be an alias, a real id, `source/model`, or an id you have remapped — which is
-how you handle an app that will only ever send `gpt-4o`.
+Control operations are also published as an MCP manifest at `/mcp`; mutations stage,
+you apply.
 
 ## Where your keys live
 
-Encrypted at rest with [age](https://age-encryption.org) in `~/.config/ferrule`. A
-plaintext key never touches SQLite, the logs, or the ledger — only an opaque vault
-reference does, and a test asserts it.
-
-Two ways to hold the vault open, defending against different things:
-
-- **Identity file** (default) — mode 0600, beside the store; the daemon starts unattended.
-  Stops another account on the machine, and the everyday leaks that put keys in a dozen
-  `.env` files. Does **not** stop someone who copies the whole directory: a backup takes
-  both files, and two files is one decryption.
-- **Passphrase** — `serve --passphrase`. Nothing that can open the vault is written to
-  disk, so a copy of the directory is useless without you. The daemon cannot then start
-  unattended.
-
-Neither stops code already running as you against a live daemon; no local single-user
-secret store can, because the daemon has to read the key to make the request. What Ferrule
-offers there is the ledger: every use of every key is recorded, so a key used behind your
-back is one you can see was used.
-
-## The two lanes
-
-The fault line is **normalization cost**, not text versus media.
-
-- **Raw tokens — one endpoint.** `/v1/chat/completions`, `/v1/completions`,
-  `/v1/embeddings`, `/v1/images/generations`. Any chat or embeddings model, local or
-  cloud, through one URL.
-- **Media — native shape.** Prediction-based providers (Replicate) are reached at
-  `/p/<source>/…` with their own request and response shape left byte-identical. Ferrule
-  injects the key and logs the egress, and lends the key only to that provider's inference
-  routes.
-
-## The agent face
-
-Control operations are published as an MCP manifest at `/mcp`, generated from the same
-command bus the panel and the CLI dispatch through — so `manifest ⊇ command bus` holds by
-construction, and a test asserts it. Mutating operations **stage** rather than land: the
-agent proposes, you apply. A provider key is withheld from the staged payload entirely.
-Inference does not go through this face.
+Encrypted with [age](https://age-encryption.org) in `~/.config/ferrule`. A plaintext key
+never touches SQLite, the logs or the ledger — a test asserts it. The identity file
+(default, 0600) lets the daemon start unattended; `serve --passphrase` writes nothing to
+disk that can open the vault, at the cost of unattended start. Neither stops code already
+running as you — no local secret store can — which is what the ledger is for: every use of
+every key is recorded.
 
 ## Verify it yourself
 
 ```
-make check     # gofmt, go vet, and the checkpoint harnesses
+make check     # gofmt, go vet, the checkpoint harnesses, and the demo boots
 make dist      # all five targets, CGO off
 ```
 
-`make check` refuses a skipped test as well as a failing one — a machine that cannot run a
-gate has to say so rather than quietly accept the package. The harnesses are the gates:
-the add pipeline reaching `live` for every seed provider and `failed` *with a visible
-reason* for a bad key; the OpenAI SDK completing calls to a cloud and a local model with
-correct per-token attribution; a 100-request replay reproducing exact per-app, per-model
-and per-egress counts; passthrough byte-identity; the MCP face staging its mutations; and
-the control plane refusing the network from a real non-loopback bind.
-
-## Status
-
-Verified end to end on macOS, Linux and Windows — install, run, share, register at login,
-unregister. Nothing is signed or notarised. Intel Macs are served by the
+`make check` refuses a skipped test as well as a failing one. Verified end to end on
+macOS, Linux and Windows. Nothing is signed or notarised; Intel Macs get the
 `ferrule-darwin-amd64` binary rather than the app.
-
-## Not doing
-
-No accounts, no auth, no multi-user, no team key pool, no hosted backend. No provider
-breadth for its own sake: a curated seed set — Anthropic, DeepSeek, Groq, NVIDIA, OpenAI,
-Replicate, and a generic OpenAI-compatible endpoint for everything else — widened when a
-real request arrives. No telemetry, ever. And Ferrule does not run models: llama.cpp,
-Ollama and the providers do inference; Ferrule routes.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The embedded typefaces (JetBrains Mono, IBM Plex Sans) are
-OFL 1.1; see [NOTICE](NOTICE).
+MIT — see [LICENSE](LICENSE). Embedded typefaces are OFL 1.1; see [NOTICE](NOTICE).
 
-Founding document: [FERRULE.md](FERRULE.md) · what shipped: [SPEC.md](SPEC.md) · for a
-coding agent: [llms.txt](llms.txt)
+Founding document: [FERRULE.md](FERRULE.md) · what shipped: [SPEC.md](SPEC.md) · changes:
+[CHANGELOG.md](CHANGELOG.md) · for a coding agent: [llms.txt](llms.txt)
