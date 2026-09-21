@@ -88,6 +88,9 @@ jobs:
 
   publish-tap:
     needs: homebrew
+    # Without this, a dispatch run skips here: the default condition walks every ancestor
+    # and the skipped release job counts against it.
+    if: always() && needs.homebrew.result == 'success'
     uses: NakliTechie/homebrew-tap/.github/workflows/publish.yml@main
     with:
       artifact: homebrew
