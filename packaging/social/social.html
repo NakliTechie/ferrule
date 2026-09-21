@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- The GitHub social card. Rendered by packaging/social/render.sh into marketing/social.png
+     (1280×640). Same type and palette as the panel; the right half is the household card
+     from marketing/hero.png, so the card and the README hero always show the same build. -->
+<html><head><meta charset="utf-8">
+<style>
+  @font-face { font-family: "Ferrule Mono"; src: url("../../internal/ui/assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); font-weight: 500; }
+  @font-face { font-family: "Ferrule Sans"; src: url("../../internal/ui/assets/fonts/IBMPlexSans-Regular.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Ferrule Sans"; src: url("../../internal/ui/assets/fonts/IBMPlexSans-Medium.woff2") format("woff2"); font-weight: 500; }
+  html, body { margin: 0; background: #0d0f11; }
+  body { width: 1280px; height: 640px; position: relative; overflow: hidden;
+         font-family: "Ferrule Sans", system-ui, sans-serif; color: rgba(236,238,240,0.92); }
+  .copy { position: absolute; left: 72px; top: 96px; width: 560px; }
+  .brand { font-family: "Ferrule Mono", monospace; font-weight: 500; font-size: 20px;
+           letter-spacing: 0.22em; color: #3fb950; }
+  h1 { margin: 34px 0 0; font-weight: 500; font-size: 46px; line-height: 1.14; letter-spacing: -0.012em; }
+  h1 em { font-style: normal; color: #3fb950; }
+  p.sub { margin: 26px 0 0; font-size: 23px; line-height: 1.4; color: rgba(236,238,240,0.62); }
+  .facts { position: absolute; left: 72px; bottom: 64px; font-family: "Ferrule Mono", monospace;
+           font-weight: 500; font-size: 13px; letter-spacing: 0.04em; color: rgba(236,238,240,0.42); }
+  .facts b { color: rgba(236,238,240,0.62); font-weight: 500; }
+  /* The household card, lifted whole from the hero at 1.25x (in the hero's CSS pixels it sits
+     at 154,64 and is 458×414). The section under it runs off the bottom on purpose: the card
+     is the glimpse, the sentence is the message. */
+  .shot { position: absolute; left: 700px; top: 64px; width: 580px; height: 576px; overflow: hidden; }
+  .shot img { position: absolute; width: 1000px; transform-origin: 0 0; transform: scale(1.25);
+              left: -184px; top: -72px; }
+</style></head>
+<body>
+  <div class="copy">
+    <div class="brand">FERRULE</div>
+    <h1>Every LLM key held once, encrypted, <em>on your own machine.</em></h1>
+    <p class="sub">One OpenAI-compatible endpoint on top that your whole house can use.</p>
+  </div>
+  <div class="facts"><b>ONE BINARY</b> &nbsp;·&nbsp; macOS · Linux · Windows &nbsp;·&nbsp; <b>NO ACCOUNT, NO TELEMETRY</b></div>
+  <div class="shot"><img src="../../marketing/hero.png" alt=""></div>
+</body></html>
