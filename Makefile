@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 
-.PHONY: build check test vet fmt dist clean run demo demo-smoke sync-llms app bundle app-dist
+.PHONY: build check test vet fmt dist clean run demo demo-smoke sync-llms app bundle app-dist brew
 
 build: sync-llms
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/ferrule
@@ -108,6 +108,14 @@ demo-smoke: build
 	    tail -5 /tmp/ferrule-demo-smoke.log; exit 1; \
 	  fi; \
 	  echo "demo: ok"
+
+# The Homebrew formula and cask, rendered from a published release's SHA256SUMS into the
+# tap checkout. Run after the release workflow has finished; commit and push in the tap.
+TAP ?= $(shell brew --repository naklitechie/tap 2>/dev/null)
+brew:
+	@test "$(VERSION)" != dev || (echo "make brew VERSION=vX.Y.Z"; exit 1)
+	@test -n "$(TAP)" || (echo "no tap checkout: brew tap naklitechie/tap, or pass TAP="; exit 1)
+	@packaging/brew/generate.sh $(VERSION) $(TAP)
 
 clean:
 	rm -rf dist $(BINARY)
