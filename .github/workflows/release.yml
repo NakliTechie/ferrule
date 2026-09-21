@@ -3,12 +3,20 @@ name: release
 on:
   push:
     tags: ['v*']
+  # Re-land an existing release in the Homebrew tap without cutting a new one — the
+  # release job is skipped and the formula is rendered from the published SHA256SUMS.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to the tap, e.g. v1.1.0
+        required: true
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: github.event_name == 'push'
     # macOS, so the Mac bundle can be built and its two architectures joined with lipo.
     # Everything else cross-compiles from here with cgo off, so one job produces the whole
     # release rather than two that have to agree with each other.
@@ -57,3 +65,32 @@ jobs:
             **Go** — `go install github.com/NakliTechie/ferrule/cmd/ferrule@${{ github.ref_name }}`
 
             Verify what you downloaded against `SHA256SUMS`.
+
+  # The formula and cask are rendered from the release that now exists, so they can only
+  # name assets that are really there, and committed by the tap's own workflow — the
+  # one place that holds a key to it.
+  homebrew:
+    needs: release
+    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: render from the published checksums
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          packaging/brew/generate.sh "$tag" homebrew
+          echo "tag=$tag" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew
+          path: homebrew
+          if-no-files-found: error
+
+  publish-tap:
+    needs: homebrew
+    uses: NakliTechie/homebrew-tap/.github/workflows/publish.yml@main
+    with:
+      artifact: homebrew
+      message: "ferrule ${{ github.event.inputs.tag || github.ref_name }}"
+    secrets:
+      deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

@@ -1,17 +1,21 @@
 #!/bin/sh
 # Render the Homebrew formula and cask for one release into a tap checkout.
 #
-#   packaging/brew/generate.sh v1.1.0 /path/to/homebrew-tap
+#   packaging/brew/generate.sh v1.1.0 /path/to/homebrew-tap [path/to/SHA256SUMS]
 #
-# Reads SHA256SUMS from the published release, so it can only describe assets that
-# exist; a release whose checksums are missing an asset fails here rather than producing
-# a formula that 404s on install.
+# Reads SHA256SUMS from the published release (or the local file the release job just
+# built), so it can only describe assets that exist; a checksum list missing an asset
+# fails here rather than producing a formula that 404s on install.
 set -eu
 tag=${1:?tag, e.g. v1.1.0}
 tap=${2:?path to the homebrew-tap checkout}
 version=${tag#v}
 here=$(dirname "$0")
-sums=$(curl -fsSL "https://github.com/NakliTechie/ferrule/releases/download/$tag/SHA256SUMS")
+if [ -n "${3:-}" ]; then
+  sums=$(cat "$3")
+else
+  sums=$(curl -fsSL "https://github.com/NakliTechie/ferrule/releases/download/$tag/SHA256SUMS")
+fi
 
 sum() {
   s=$(printf '%s\n' "$sums" | awk -v f="$1" '$2 == f { print $1 }')

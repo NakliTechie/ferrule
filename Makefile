@@ -109,13 +109,15 @@ demo-smoke: build
 	  fi; \
 	  echo "demo: ok"
 
-# The Homebrew formula and cask, rendered from a published release's SHA256SUMS into the
-# tap checkout. Run after the release workflow has finished; commit and push in the tap.
+# The Homebrew formula and cask, rendered from a release's SHA256SUMS into the tap
+# checkout. The release workflow runs this and hands the result to the tap's publish
+# workflow; by hand it is a repair tool — render, then commit and push in the tap.
+# SUMS= points at a local checksum file instead of fetching the published one.
 TAP ?= $(shell brew --repository naklitechie/tap 2>/dev/null)
 brew:
 	@test "$(VERSION)" != dev || (echo "make brew VERSION=vX.Y.Z"; exit 1)
 	@test -n "$(TAP)" || (echo "no tap checkout: brew tap naklitechie/tap, or pass TAP="; exit 1)
-	@packaging/brew/generate.sh $(VERSION) $(TAP)
+	@packaging/brew/generate.sh $(VERSION) $(TAP) $(SUMS)
 
 clean:
 	rm -rf dist $(BINARY)
