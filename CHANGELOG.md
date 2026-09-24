@@ -5,7 +5,7 @@ All notable changes to Ferrule are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). The version is the git tag; there is no
 manifest to bump.
 
-## [Unreleased]
+## [1.2.0] — 2026-09-24
 
 ### Added
 - `/v1` answers a browser page: the origin is reflected, the preflight is answered
@@ -13,6 +13,11 @@ manifest to bump.
   private-network request to loopback is allowed. The token is still the gate — a
   page without one gets 401. The control routes are unchanged: same machine, same
   origin. First consumer: NakliOS's Ferrule provider preset.
+
+### Fixed
+- CI: `make` runs under bash. The test target's `set -o pipefail` failed under
+  Ubuntu's dash, so `ci.yml` was red on every push since 2026-09-21; releases (built on
+  macOS) were unaffected.
 
 ## [1.1.0] — 2026-09-21
 
@@ -51,6 +56,7 @@ manifest to bump.
 
 First release. One binary; macOS (Apple Silicon app + Intel binary), Linux, Windows.
 
+[1.2.0]: https://github.com/NakliTechie/ferrule/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/NakliTechie/ferrule/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/NakliTechie/ferrule/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/NakliTechie/ferrule/releases/tag/v1.0.0
