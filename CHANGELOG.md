@@ -5,6 +5,15 @@ All notable changes to Ferrule are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). The version is the git tag; there is no
 manifest to bump.
 
+## [Unreleased]
+
+### Added
+- `/v1` answers a browser page: the origin is reflected, the preflight is answered
+  before the token guard (a preflight carries no token), and a public page's
+  private-network request to loopback is allowed. The token is still the gate — a
+  page without one gets 401. The control routes are unchanged: same machine, same
+  origin. First consumer: NakliOS's Ferrule provider preset.
+
 ## [1.1.0] — 2026-09-21
 
 ### Added

@@ -304,6 +304,14 @@ func crossOriginAllowed(a *app.App, path string) bool {
 func guardOrigin(a *app.App, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		if origin != "" && strings.HasPrefix(r.URL.Path, "/v1/") {
+			// A browser app (NakliOS, a local web tool) is an inference client like any SDK. The
+			// token is the gate, not the origin: a page without one gets 401 and learns nothing,
+			// and the control routes below stay same-machine and same-origin.
+			if inferenceCORS(w, r, origin) {
+				return
+			}
+		}
 		if origin == "" || strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/p/") {
 			next.ServeHTTP(w, r)
 			return
@@ -330,4 +338,26 @@ func guardOrigin(a *app.App, next http.Handler) http.Handler {
 		http.Error(w, "cross-origin control requests are off by default — turn on the "+
 			"developer setting if you meant this", http.StatusForbidden)
 	})
+}
+
+// inferenceCORS lets a browser page call /v1 with a token. It reflects the origin (never
+// "*", so a credentialed request stays possible), answers the preflight itself — the
+// preflight carries no Authorization, so the token guard would refuse it — and allows
+// the private-network request a public page makes to a loopback address. It reports
+// whether the request was a preflight it has fully answered.
+func inferenceCORS(w http.ResponseWriter, r *http.Request, origin string) bool {
+	h := w.Header()
+	h.Set("Access-Control-Allow-Origin", origin)
+	h.Add("Vary", "Origin")
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Api-Key")
+	h.Set("Access-Control-Max-Age", "600")
+	if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+		h.Set("Access-Control-Allow-Private-Network", "true")
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return true
 }
