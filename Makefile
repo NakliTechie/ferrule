@@ -1,3 +1,7 @@
+# bash, not /bin/sh: the test target uses `set -o pipefail`, which Ubuntu's dash rejects —
+# CI failed on every push from 2026-09-21 while the macOS release job (sh is bash there) passed.
+SHELL := /bin/bash
+
 BINARY  := ferrule
 VERSION ?= dev
 LDFLAGS := -s -w -X main.Version=$(VERSION)
