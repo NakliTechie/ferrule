@@ -18,3 +18,6 @@ plan/
 *.db-shm
 *.db-wal
 .ferrule-dev/
+# Promo output (regenerable; /windup-nt sweeps it)
+/marketing
+/brag-output*
