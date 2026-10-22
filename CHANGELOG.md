@@ -5,6 +5,14 @@ All notable changes to Ferrule are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). The version is the git tag; there is no
 manifest to bump.
 
+## [1.2.1] — 2026-10-22
+
+### Security
+- Rebuilt with Go 1.27.3 after the eMudhra CA compromise. Go 1.27.3 blocks the eight
+  compromised intermediates in its own verifier, which protects Linux hosts whose
+  system bundle still trusts them. `go.mod` and both workflows now pin 1.27.3. No
+  source change.
+
 ## [1.2.0] — 2026-09-24
 
 ### Added
@@ -56,6 +64,7 @@ manifest to bump.
 
 First release. One binary; macOS (Apple Silicon app + Intel binary), Linux, Windows.
 
+[1.2.1]: https://github.com/NakliTechie/ferrule/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/NakliTechie/ferrule/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/NakliTechie/ferrule/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/NakliTechie/ferrule/compare/v1.0.0...v1.0.1
